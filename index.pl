@@ -199,7 +199,7 @@ sub html {	#HTML template
 			for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){			//check if all the server data will be displayed
 				var serverdata = server[i].split(/ENDOFELEMENT/g);	//Split by elements(js/markup/wanings)
 				document.getElementById('js').innerHTML += serverdata[0];			//insert data
-				document.getElementById('table').innerHTML += serverdata[1];
+				document.getElementById('data').innerHTML += "<table id='table'>" + serverdata[1] + "</table>";
 				document.getElementById('warnings').innerHTML += serverdata[2];                                      
 				eval(document.getElementById('js').innerHTML);
 				numberOfServersDisplayed++;				
@@ -219,7 +219,7 @@ sub html {	#HTML template
   <body onload="init();"> 
 	<div id="message"></div>
 	<script type="text/javascript" id="js"></script>
-        <table align="center" id="table"></table>
+        <div align="center" id="data"></div>
 	<div id="warnings"></div>
 </body> 
 </html> 
