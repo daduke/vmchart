@@ -38,8 +38,6 @@ if ($option eq 'data'){
     print html();
 }
 
-
-
 sub getdata {
     foreach my $server (@servers) {
         my $json_text;
@@ -108,7 +106,7 @@ sub getdata {
                         $javascript .= lvData("${serverID}_$lvGrpChart", $lvRows);
                         $lvGrpChart = int($lvcount / $LVSPERCHART);
                         $lvRows = '';
-                    }   
+                    }
 
                     if ($lvcount && !($lvcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
                         $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
@@ -150,51 +148,51 @@ sub getdata {
 sub html {  #HTML template
     my $css = css();
     return <<EOF;
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"> 
-<html xmlns="http://www.w3.org/1999/xhtml"> 
-  <head> 
-    <meta http-equiv="content-type" content="text/html; charset=utf-8"/> 
-    <title> 
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <title>
       LVMchart - LVM Monitoring
-    </title> 
+    </title>
     <style type="text/css">
         $css
     </style>
-    <script type="text/javascript" src="http://www.google.com/jsapi"></script>     
-    <script type="text/javascript"> 
+    <script type="text/javascript" src="http://www.google.com/jsapi"></script>
+    <script type="text/javascript">
            google.load('visualization', '1', {packages: ['corechart']});
            google.load('visualization', '1', {packages:['orgchart']});
-            
-    var numberOfServersDisplayed = 0;   
+
+    var numberOfServersDisplayed = 0;
     var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
-    
+
     function init(){
         //Use ajax to load server data
         ajaxLoad("index.pl?data", ajaxOnResult);
     }
-        
+
     function ajaxLoad(url, callback){
         req.open("GET", url, true);
-        req.send(null);                             
-        
+        req.send(null);
+
         req.onreadystatechange = callback;                  //Start ajaxOnResult function after the stream
         window.setTimeout( function() {ajaxOnProgress(req);},500);
     }
-    
+
     function ajaxOnProgress(req) {
-        if (req.readyState !=4){                        //while the data are received       
-             var msg = document.getElementById("message");      
+        if (req.readyState !=4){                        //while the data are received
+             var msg = document.getElementById("message");
              if(msg.innerHTML == ''){
               msg.innerHTML = 'Loading Server 1 of $numberOfServers';
              }
-            ajaxDisplayServer();    
-            window.setTimeout( function() {ajaxOnProgress(req);},500);          
+            ajaxDisplayServer();
+            window.setTimeout( function() {ajaxOnProgress(req);},500);
         }
     }
 
-    function ajaxDisplayServer(){       
-        if(req.responseText.match(/ENDOFSERVER/g)){                             
-            var server = req.responseText.split(/ENDOFSERVER/g);        //Split the Stream in Server                           
+    function ajaxDisplayServer(){
+        if(req.responseText.match(/ENDOFSERVER/g)){
+            var server = req.responseText.split(/ENDOFSERVER/g);        //Split the Stream in Server
             var numberOfServersReceived = server.length -1;         //the number of servers in the array
 
             for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
@@ -205,10 +203,10 @@ sub html {  #HTML template
                 
                 document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
                 eval(document.getElementById('js').innerHTML);
-                numberOfServersDisplayed++;             
-            }       
+                numberOfServersDisplayed++;
+            }
         }
-    }   
+    }
 
     function ajaxOnResult(evt){
         if ((evt.currentTarget.readyState == 4) && (evt.currentTarget.status == 200 || evt.currentTarget.status == 0)) {
@@ -217,15 +215,15 @@ sub html {  #HTML template
             }
     }
 </script>
- </head> 
-  <div class="header">LVMchart - LVM Monitoring</div> 
-  <body onload="init();"> 
+ </head>
+  <div class="header">LVMchart - LVM Monitoring</div>
+  <body onload="init();">
     <div id="message"></div>
     <script type="text/javascript" id="js"></script>
         <div align="center" id="data"></div>
     <div id="warnings"></div>
-</body> 
-</html> 
+</body>
+</html>
 EOF
 }
 
@@ -252,24 +250,24 @@ sub chartTable {    #chart table HTML
 
     return <<EOF;
       <tr><td>Host $server</td></tr>
-      <tr> 
-        <td> 
-          <div class="chart" id="pv_chart_$serverID"></div> 
-        </td> 
-        <td> 
-          <div class="chart" id="vg_chart_$serverID"></div> 
-        </td> 
-        <td> 
+      <tr>
+        <td>
+          <div class="chart" id="pv_chart_$serverID"></div>
+        </td>
+        <td>
+          <div class="chart" id="vg_chart_$serverID"></div>
+        </td>
+        <td>
        $lvChart
-        </td> 
+        </td>
     </tr>
        $lvRows
     <tr>
-       <td colspan="3">  
+       <td colspan="3">
        $orgChart
-        </td> 
-      </tr> 
-      <tr><td colspan="3"><hr /></td></tr> 
+        </td>
+      </tr>
+      <tr><td colspan="3"><hr /></td></tr>
 EOF
 }
 
@@ -286,17 +284,17 @@ sub pvData {
                    {id:'inLV',label:'$labels{"inlv"}', type:'number'},      // inLV
                    {id:'inVG', label:'$labels{"invg"}',type:'number'},      // inVG
                    {id:'inPV',label:'$labels{"inpv"}',type:'number'}        // inPV
-          ],    
+          ],
             rows: [{c:[{v:$PVFSLevel},{v:$PVInFS},{v:$PVInLV},{v:$PVInVG},{v:$PVInPV}]}
           ]
           });
-                
+
         formatter.format(pv_data_$serverID, 0); //Apply formatter to columns
         formatter.format(pv_data_$serverID, 1);
         formatter.format(pv_data_$serverID, 2);
         formatter.format(pv_data_$serverID, 3);
         formatter.format(pv_data_$serverID, 4);
- 
+
     //pv chart
         var pv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('pv_chart_$serverID'));
             pv_chart_$serverID.draw(pv_data_$serverID, {'title':'Usage of Physical Volumes',
@@ -325,12 +323,12 @@ sub vgData {
         rows: [$vgRows
                   ]
           });
-       
+
         formatter.format(vg_data_$serverID, 1);
         formatter.format(vg_data_$serverID, 2);
         formatter.format(vg_data_$serverID, 3);
         formatter.format(vg_data_$serverID, 4);
-       
+
     //vg chart
         var vg_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('vg_chart_$serverID'));
         vg_chart_$serverID.draw(vg_data_$serverID, {'title':'Usage of Volume Groups',
@@ -357,11 +355,11 @@ sub lvData {
         rows: [$lvRows
                   ]
           });
-       
+
         formatter.format(lv_data_$serverID, 1);
         formatter.format(lv_data_$serverID, 2);
         formatter.format(lv_data_$serverID, 3);
-       
+
     //lv chart
         var lv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('lv_chart_$serverID'));
         lv_chart_$serverID.draw(lv_data_$serverID, {'title':'Usage of Logical Volumes',
@@ -385,11 +383,11 @@ sub orgChart {
                    {id:'LV Size',label:'LV Size',type:'number'}
                   ],
             rows: [$orgRows
-                ]        
+                ]
           });
-          
+
         formatter.format(org_data_$serverID, 2);
- 
+
     //orgchart chart
         var org_chart_$serverID = new google.visualization.OrgChart(document.getElementById('org_chart_$serverID'));
             org_chart_$serverID.draw(org_data_$serverID, {allowHtml: true});
@@ -411,7 +409,7 @@ sub css {
 
 #message {
     line-height: 6em;
-    color: green; 
+    color: green;
     font-weight: bold;
     text-align: center;
 }
