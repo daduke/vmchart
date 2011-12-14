@@ -197,10 +197,10 @@ sub html {  #HTML template
 
             for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
                 var serverdata = server[i].split(/ENDOFELEMENT/g);  //Split by elements(js/markup/wanings)
-                document.getElementById('js').innerHTML += serverdata[0];           //insert data
                 document.getElementById('data').innerHTML += "<table id='table'>" + serverdata[1] + "</table>";
-                document.getElementById('warnings').innerHTML += serverdata[2];                                      
-                
+                document.getElementById('js').innerHTML += serverdata[0];           //insert data
+                document.getElementById('warnings').innerHTML += serverdata[2];
+
                 document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
                 eval(document.getElementById('js').innerHTML);
                 numberOfServersDisplayed++;
@@ -208,10 +208,10 @@ sub html {  #HTML template
         }
     }
 
-    function ajaxOnResult(evt){
-        if ((evt.currentTarget.readyState == 4) && (evt.currentTarget.status == 200 || evt.currentTarget.status == 0)) {
-            ajaxDisplayServer();                                    //double check if all the server data was displayed                 
-            document.getElementById("message").style.visibility = 'hidden';     
+    function ajaxOnResult(){
+        if ((req.readyState == 4) && (req.status == 200 || req.status == 0)) {
+            ajaxDisplayServer();                                    //double check if all the server data was displayed
+            document.getElementById("message").style.visibility = 'hidden';
             }
     }
 </script>
