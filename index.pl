@@ -41,7 +41,7 @@ if ($option eq 'data'){
 sub getdata {
     foreach my $server (@servers) {
         my $json_text;
-        if (!($json_text = `ssh -o IdentitiesOnly=yes -i ~/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper lvm2.pl`)) {
+        if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper lvm2.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
         } else {
             my $json = JSON->new->allow_nonref;
