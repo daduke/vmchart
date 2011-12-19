@@ -12,9 +12,9 @@ use POSIX qw(ceil);
 
 open HOSTS, "hostlist";
 my @servers = <HOSTS>;
-my $numberOfServers = @servers;
 close HOSTS;
 chomp @servers;
+my $numberOfServers = @servers;
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
 my $LVSPERCHART = 8;    #number of LV in bar chart
@@ -81,6 +81,7 @@ sub getdata {
             my $lvGrpOrg = 0;
             my $lvGrpChart = 0;
             my $orgChart .= "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
+            my $lvcount = 0;
             foreach my $vg (sort keys %{$lvm{'vgs'}}) {
                 my $VGFSLevel = $lvm{'pv'}{$vg}{'FSLevel'}; #get VG data
                 my $VGInFS = $lvm{'pv'}{$vg}{'inFS'} - $VGFSLevel;
@@ -93,7 +94,6 @@ sub getdata {
                 $vgRows .= " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
                 $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
 
-                my $lvcount = 0;
                 foreach my $lv (sort keys %{$lvm{$vg}{'lvs'}}) {
                     my $LVFSLevel = $lvm{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
                     my $LVInFS = $lvm{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
@@ -130,7 +130,7 @@ sub getdata {
             $markup .= chartTable($server, $serverID, $orgChart, $numLVs);
 
             #Print information about this server
-                        print $javascript;
+            print $javascript;
             print "ENDOFELEMENT";
             print $markup;
             print "ENDOFELEMENT";
@@ -147,6 +147,7 @@ sub getdata {
 #----------------
 sub html {  #HTML template
     my $css = css();
+    my $javascript = javascript();
     return <<EOF;
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -160,61 +161,8 @@ sub html {  #HTML template
     </style>
     <script type="text/javascript" src="http://www.google.com/jsapi"></script>
     <script type="text/javascript">
-           google.load('visualization', '1', {packages: ['corechart']});
-           google.load('visualization', '1', {packages:['orgchart']});
-
-    var numberOfServersDisplayed = 0;
-    var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
-
-    function init(){
-        //Use ajax to load server data
-        ajaxLoad("index.pl?data", ajaxOnResult);
-    }
-
-    function ajaxLoad(url, callback){
-        req.open("GET", url, true);
-        req.send(null);
-
-        req.onreadystatechange = callback;                  //Start ajaxOnResult function after the stream
-        window.setTimeout( function() {ajaxOnProgress(req);},500);
-    }
-
-    function ajaxOnProgress(req) {
-        if (req.readyState !=4){                        //while the data are received
-             var msg = document.getElementById("message");
-             if(msg.innerHTML == ''){
-              msg.innerHTML = 'Loading Server 1 of $numberOfServers';
-             }
-            ajaxDisplayServer();
-            window.setTimeout( function() {ajaxOnProgress(req);},500);
-        }
-    }
-
-    function ajaxDisplayServer(){
-        if(req.responseText.match(/ENDOFSERVER/g)){
-            var server = req.responseText.split(/ENDOFSERVER/g);        //Split the Stream in Server
-            var numberOfServersReceived = server.length -1;         //the number of servers in the array
-
-            for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
-                var serverdata = server[i].split(/ENDOFELEMENT/g);  //Split by elements(js/markup/wanings)
-                document.getElementById('data').innerHTML += "<table id='table'>" + serverdata[1] + "</table>";
-                document.getElementById('js').innerHTML += serverdata[0];           //insert data
-                document.getElementById('warnings').innerHTML += serverdata[2];
-
-                document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
-                eval(document.getElementById('js').innerHTML);
-                numberOfServersDisplayed++;
-            }
-        }
-    }
-
-    function ajaxOnResult(){
-        if ((req.readyState == 4) && (req.status == 200 || req.status == 0)) {
-            ajaxDisplayServer();                                    //double check if all the server data was displayed
-            document.getElementById("message").style.visibility = 'hidden';
-            }
-    }
-</script>
+        $javascript
+    </script>
  </head>
   <div class="header">LVMchart - LVM Monitoring</div>
   <body onload="init();">
@@ -438,5 +386,63 @@ div.child {
     color:#008800;
     font-style:italic;
 }
+EOF
+}
+
+sub javascript {
+    return <<EOF;
+           google.load('visualization', '1', {packages: ['corechart']});
+           google.load('visualization', '1', {packages:['orgchart']});
+
+    var numberOfServersDisplayed = 0;
+    var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
+
+    function init(){
+        //Use ajax to load server data
+        ajaxLoad("index.pl?data", ajaxOnResult);
+    }
+
+    function ajaxLoad(url, callback){
+        req.open("GET", url, true);
+        req.send(null);
+
+        req.onreadystatechange = callback;                  //Start ajaxOnResult function after the stream
+        window.setTimeout( function() {ajaxOnProgress(req);},500);
+    }
+
+    function ajaxOnProgress(req) {
+        if (req.readyState !=4){                        //while the data are received
+             var msg = document.getElementById("message");
+             if(msg.innerHTML == ''){
+              msg.innerHTML = 'Loading Server 1 of $numberOfServers';
+             }
+            ajaxDisplayServer();
+            window.setTimeout( function() {ajaxOnProgress(req);},500);
+        }
+    }
+
+    function ajaxDisplayServer(){
+        if(req.responseText.match(/ENDOFSERVER/g)){
+            var server = req.responseText.split(/ENDOFSERVER/g);        //Split the stream into individual servers
+            var numberOfServersReceived = server.length -1;         //the number of servers in the array
+
+            for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
+                var serverdata = server[i].split(/ENDOFELEMENT/g);  //Split into elements(js/markup/wanings)
+                document.getElementById('data').innerHTML += "<table class='table'>" + serverdata[1] + "</table>";
+                document.getElementById('js').innerHTML += serverdata[0];           //insert data
+                document.getElementById('warnings').innerHTML += serverdata[2];
+                document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
+                eval(document.getElementById('js').innerHTML);
+                numberOfServersDisplayed++;
+            }
+        }
+    }
+
+    function ajaxOnResult(){
+        if ((req.readyState == 4) && (req.status == 200 || req.status == 0)) {
+            ajaxDisplayServer();                                    //double check if all the server data was displayed
+            document.getElementById("message").style.visibility = 'hidden';
+            }
+    }
 EOF
 }
