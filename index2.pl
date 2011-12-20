@@ -2,7 +2,6 @@
 
 # LVMchart - browser-based generator for nice charts of LVM usage across different file servers
 # (c) 2011 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
-# incremental AJAX loading by Philip Ezhukattil <philipe@phys.ethz.ch>
 # distributed under the terms of the GNU General Public License version 2 or any later version.
 # project website: http://wiki.phys.ethz.ch/readme/lvmchart
 
@@ -21,7 +20,6 @@ my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inl
 my $LVSPERCHART = 8;    #number of LV in bar chart
 my $ORGSPERCHART = 8;   #number of LV in org chart
 my $CHARTSPERLINE = 3;  #number of LV charts in one line
-my $LVCHARTFACTOR = 14; #max factor in one LV chart
 
 my (%lvm, $UNIT);
 my ($markup, $javascript);
@@ -84,8 +82,7 @@ sub getdata {
             my $lvGrpChart = 0;
             my $orgChart .= "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
             my $lvcount = 0;
-            my (%vgs, %lvs);
-            foreach my $vg (reverse sort { $lvm{'pv'}{$a}{'size'} <=> $lvm{'pv'}{$b}{'size'} } keys %{$lvm{'vgs'}}) {
+            foreach my $vg (sort keys %{$lvm{'vgs'}}) {
                 my $VGFSLevel = $lvm{'pv'}{$vg}{'FSLevel'}; #get VG data
                 my $VGInFS = $lvm{'pv'}{$vg}{'inFS'} - $VGFSLevel;
                 my $VGInLV = $lvm{'pv'}{$vg}{'inLV'};
@@ -97,28 +94,27 @@ sub getdata {
                 $vgRows .= " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
                 $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
 
-                foreach my $lv (reverse sort { $lvm{'pv'}{$vg}{$a}{'size'} <=> $lvm{'pv'}{$vg}{$b}{'size'} } keys %{$lvm{$vg}{'lvs'}}) {    #sort by LV size
+                foreach my $lv (sort keys %{$lvm{$vg}{'lvs'}}) {
                     my $LVFSLevel = $lvm{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
                     my $LVInFS = $lvm{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
                     my $LVInLV = $lvm{'pv'}{$vg}{$lv}{'inLV'};
                     my $LVSize = $lvm{'pv'}{$vg}{$lv}{'size'};
+                    $LVSize = $format->format_number($LVSize);
+                    $LVSize =~ s/'/\\'/;
 
                     if ($lvcount && !($lvcount % $LVSPERCHART)) {   #if LV chart is full, create a new one
                         $javascript .= lvData("${serverID}_$lvGrpChart", $lvRows);
-                        $lvGrpChart++;
+                        $lvGrpChart = int($lvcount / $LVSPERCHART);
                         $lvRows = '';
                     }
 
                     if ($lvcount && !($lvcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
                         $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
-                        $lvGrpOrg++;
+                        $lvGrpOrg = int($lvcount / $ORGSPERCHART);
                         $orgChart .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>\n";
                         $orgRows = "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
                     }
                     $lvcount++;
-
-                    $LVSize = $format->format_number($LVSize);
-                    $LVSize =~ s/'/\\'/;
 
                     $lvRows .= "{c:[{v:'$lv'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
                     $orgRows .= "{c:[{v:'$lv<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
@@ -171,9 +167,9 @@ sub html {  #HTML template
   <div class="header">LVMchart - LVM Monitoring</div>
   <body onload="init();">
     <div id="message"></div>
-    <script type="text/javascript" id="js"></script>
-        <div align="center" id="data"></div>
+    <div align="center" id="data"></div>
     <div id="warnings"></div>
+    <div id="javascr" />
 </body>
 </html>
 EOF
@@ -248,15 +244,39 @@ sub pvData {
         formatter.format(pv_data_$serverID, 4);
 
     //pv chart
-        var pv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('pv_chart_$serverID'));
-            pv_chart_$serverID.draw(pv_data_$serverID, {'title':'Usage of Physical Volumes',
-                                    'backgroundColor':'#C9D5E5',
-                                    'legend': 'right',
-                                    'legendTextStyle': {fontSize:10},
-                                    'isStacked': true,
-                    'colors':['#3366cc','#3399ff','magenta','#dc3912','#ff9900'],
-                                    'vAxis': {'title': '$UNIT','gridlineColor':'#808080'},
-                                    'hAxis':{'title':'Total: $PVSize$UNIT'}});
+//        var pv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('pv_chart_$serverID'));
+//            pv_chart_$serverID.draw(pv_data_$serverID, {'title':'Usage of Physical Volumes',
+//                                                        'backgroundColor':'#C9D5E5',
+//                                                        'legend': 'right',
+//                                                        'legendTextStyle': {fontSize:10},
+//                                                        'isStacked': true,
+//                                                        'colors':['#3366cc','#3399ff','magenta','#dc3912','#ff9900'],
+//                                                        'vAxis': {'title': '$UNIT','gridlineColor':'#808080'},
+//                                                        'hAxis':{'title':'Total: $PVSize$UNIT'}
+//                                                       }
+//                                    );
+
+
+    var wrapper_$serverID = new google.visualization.ChartWrapper({
+        chartType: 'ColumnChart',
+        dataTable: pv_data_$serverID,
+        options: {'title':'Usage of Physical Volumes',
+                  'backgroundColor':'#C9D5E5',
+                  'legend': 'right',
+                  'legendTextStyle': {fontSize:10},
+                  'isStacked': true,
+                  'colors':['#3366cc','#3399ff','magenta','#dc3912','#ff9900'],
+                  'vAxis': {'title': '$UNIT','gridlineColor':'#808080'},
+                  'hAxis':{'title':'Total: $PVSize$UNIT'}
+                 },
+        containerId: document.getElementById('pv_chart_$serverID')
+    });
+//    wrapper_$serverID.draw();
+
+
+
+
+
 EOF
 }
 
@@ -320,7 +340,7 @@ sub lvData {
                                     'legendTextStyle': {fontSize:10},
                                     'isStacked': true,
                     'colors':['#3366cc','#3399ff','magenta','#dc3912'],
-                                    'vAxis': {'title': '$UNIT', 'gridlineColor':'#808080'}});
+                                    'vAxis': {'title': '$UNIT','gridlineColor':'#808080'}});
 EOF
 }
 
@@ -395,15 +415,14 @@ EOF
 
 sub javascript {
     return <<EOF;
-           google.load('visualization', '1', {packages: ['corechart']});
-           google.load('visualization', '1', {packages:['orgchart']});
+           google.load('visualization', '1.0', {packages: ['corechart', 'orgchart']});
 
     var numberOfServersDisplayed = 0;
     var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
 
     function init(){
         //Use ajax to load server data
-        ajaxLoad("index.pl?data", ajaxOnResult);
+        ajaxLoad("index2.pl?data", ajaxOnResult);
     }
 
     function ajaxLoad(url, callback){
@@ -433,10 +452,22 @@ sub javascript {
             for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
                 var serverdata = server[i].split(/ENDOFELEMENT/g);  //Split into elements(js/markup/wanings)
                 document.getElementById('data').innerHTML += "<table class='table'>" + serverdata[1] + "</table>";
-                document.getElementById('js').innerHTML += serverdata[0];           //insert data
+
+                var javascr=document.getElementById("javascr"); //javascript element
+                var JSchild=document.createElement('script');   //create new js block
+                JSchild.type='text/javascript';
+                JSchild.text=serverdata[0];
+                var jsid = 'js'+i;
+                JSchild.id = jsid;
+                javascr.appendChild(JSchild);                   //and append it
+                for(n=0; n <= i; n++){
+                    var locjsid = 'js'+n;
+                    eval(document.getElementById(locjsid).innerHTML);
+                }
+                wrapper_phd_xenhost.draw();
+
                 document.getElementById('warnings').innerHTML += serverdata[2];
                 document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
-                eval(document.getElementById('js').innerHTML);
                 numberOfServersDisplayed++;
             }
         }
