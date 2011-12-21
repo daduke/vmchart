@@ -18,10 +18,10 @@ chomp @servers;
 my $numberOfServers = @servers;
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
-my $LVSPERCHART = 8;    #number of LV in bar chart
+my $BARSPERCHART = 8;    #number of LV in bar chart
 my $ORGSPERCHART = 8;   #number of LV in org chart
 my $CHARTSPERLINE = 3;  #number of LV charts in one line
-my $LVCHARTFACTOR = 14; #max factor in one LV chart
+my $MAXCHARTFACTOR = 10; #max factor in one LV chart
 
 my (%lvm, $UNIT);
 my ($markup, $javascript);
@@ -79,22 +79,23 @@ sub getdata {
             $PVSize =~ s/'/\\'/;
             $javascript .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $PVSize, $UNIT);
 
-            my ($vgRows, $lvRows, $orgRows);
+            my (%vgs, %lvs, $vgRows, $lvRows, $orgRows);
             my $lvGrpOrg = 0;
-            my $lvGrpChart = 0;
+            my $orgcount = 0;
             my $orgChart .= "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
-            my $lvcount = 0;
-            my (%vgs, %lvs);
             foreach my $vg (reverse sort { $lvm{'pv'}{$a}{'size'} <=> $lvm{'pv'}{$b}{'size'} } keys %{$lvm{'vgs'}}) {
                 my $VGFSLevel = $lvm{'pv'}{$vg}{'FSLevel'}; #get VG data
                 my $VGInFS = $lvm{'pv'}{$vg}{'inFS'} - $VGFSLevel;
                 my $VGInLV = $lvm{'pv'}{$vg}{'inLV'};
                 my $VGInVG = $lvm{'pv'}{$vg}{'inVG'};
                 my $VGSize = $lvm{'pv'}{$vg}{'size'};
+
+                $vgs{$vg}{'size'} = $VGSize;
                 $VGSize = $format->format_number($VGSize);
                 $VGSize =~ s/'/\\'/;
 
-                $vgRows .= " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
+                $vgs{$vg}{'js'} = " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
+
 
                 foreach my $lv (reverse sort { $lvm{'pv'}{$vg}{$a}{'size'} <=> $lvm{'pv'}{$vg}{$b}{'size'} } keys %{$lvm{$vg}{'lvs'}}) {    #sort by LV size
                     my $LVFSLevel = $lvm{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
@@ -102,36 +103,74 @@ sub getdata {
                     my $LVInLV = $lvm{'pv'}{$vg}{$lv}{'inLV'};
                     my $LVSize = $lvm{'pv'}{$vg}{$lv}{'size'};
 
-                    if ($lvcount && !($lvcount % $LVSPERCHART)) {   #if LV chart is full, create a new one
-                        $javascript .= lvData("${serverID}_$lvGrpChart", $lvRows);
-                        $lvGrpChart++;
-                        $lvRows = '';
-                    }
+                    $lvs{$lv}{'size'} = $LVSize;
+                    $LVSize = $format->format_number($LVSize);
+                    $LVSize =~ s/'/\\'/;
 
-                    if ($lvcount && !($lvcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
+                    if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
                         $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
                         $lvGrpOrg++;
                         $orgChart .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>\n";
                         $orgRows = "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
                     }
-                    $lvcount++;
 
-                    $LVSize = $format->format_number($LVSize);
-                    $LVSize =~ s/'/\\'/;
-
-                    $lvRows .= "{c:[{v:'$lv'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
+                    $lvs{$lv}{'js'} = "{c:[{v:'$lv'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
                     $orgRows .= "{c:[{v:'$lv<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
+
+                    $orgcount++;
                 }
                 $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
             }
+
+
+            my $maxInVGGraph = 0;
+            my $vgcount = 0;
+            my $vgGrpChart = 0;
+            foreach my $vg (reverse sort { $vgs{$a}{'size'} <=> $vgs{$b}{'size'} } keys %vgs) {
+                if ($vgcount == 0) {
+                    $maxInVGGraph = $vgs{$vg}{'size'};
+                }
+                if ( ($vgcount && !($vgcount % $BARSPERCHART)) 
+                    || ($vgs{$vg}{'size'} && (($maxInVGGraph / $vgs{$vg}{'size'})) > $MAXCHARTFACTOR) ) {
+                        #if VG chart is full or bars get too short, create a new one
+                    $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
+                    $vgGrpChart++;
+                    $vgRows = '';
+                    $vgcount = 0;
+                    $maxInVGGraph = $vgs{$vg}{'size'};
+                }
+                $vgRows .= $vgs{$vg}{'js'};
+                $vgcount++;
+            }
+
+            my $maxInLVGraph = 0;
+            my $lvcount = 0;
+            my $lvGrpChart = 0;
+            foreach my $lv (reverse sort { $lvs{$a}{'size'} <=> $lvs{$b}{'size'} } keys %lvs) {
+                if ($lvcount == 0) {
+                    $maxInLVGraph = $lvs{$lv}{'size'};
+                }
+                if ( ($lvcount && !($lvcount % $BARSPERCHART))
+                    || ($lvs{$lv}{'size'} && (($maxInLVGraph / $lvs{$lv}{'size'})) > $MAXCHARTFACTOR) ) {
+                        #if LV chart is full or bars get too short, create a new one
+                    $javascript .= lvData("${serverID}_$lvGrpChart", $lvRows);
+                    $lvGrpChart++;
+                    $lvRows = '';
+                    $lvcount = 0;
+                    $maxInLVGraph = $lvs{$lv}{'size'};
+                }
+                $lvRows .= $lvs{$lv}{'js'};
+                $lvcount++;
+            }
+
             chop $vgRows;   #trim last comma
             chop $lvRows;
             chop $orgRows;
 
-            $javascript .= vgData($serverID, $vgRows);
+            $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
             $javascript .= lvData("${serverID}_$lvGrpChart", $lvRows);
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
-            $markup .= chartTable($server, $serverID, $orgChart, $numLVs);
+            $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $lvGrpChart+1);
 
             #Print information about this server
             print $javascript;
@@ -141,7 +180,7 @@ sub getdata {
             print $warnings;
             print "ENDOFSERVER";
 
-            #Clear variables for next iteration
+            #Clear variables for next server
             $javascript = $markup = $warnings = "";
         }
     }
@@ -180,11 +219,29 @@ EOF
 }
 
 sub chartTable {    #chart table HTML
-    my ($server, $serverID, $orgChart, $numLVs) = @_;
+    my ($server, $serverID, $orgChart, $vgGrpChart, $lvGrpChart) = @_;
+    my ($vgChart, $vgRows);
     my ($lvChart, $lvRows);
-    if ($numLVs > $LVSPERCHART) {
-        my $charts = ceil($numLVs / $LVSPERCHART);
-        my $rows = ceil($numLVs / $LVSPERCHART / $CHARTSPERLINE);
+
+    if ($vgGrpChart > 1) {
+        my $rows = ceil($vgGrpChart / $CHARTSPERLINE);
+        $vgChart = "&nbsp;";
+        my $num = 0;
+        for my $row (1..$rows) {
+            $vgRows .= "<tr>";
+            for my $chart (1..$CHARTSPERLINE) {
+                $vgRows .= "<td><div class=\"chart\" id=\"vg_chart_${serverID}_$num\"></div></td>";
+                $num++;
+            }
+            $vgRows .= "</tr>";
+        }
+    } else {
+        $vgChart = "<div class=\"chart\" id=\"vg_chart_${serverID}_0\"></div>";
+        $vgRows = '';
+    }
+
+    if ($lvGrpChart > 1) {
+        my $rows = ceil($lvGrpChart / $CHARTSPERLINE);
         $lvChart = "&nbsp;";
         my $num = 0;
         for my $row (1..$rows) {
@@ -207,13 +264,14 @@ sub chartTable {    #chart table HTML
           <div class="chart" id="pv_chart_$serverID"></div>
         </td>
         <td>
-          <div class="chart" id="vg_chart_$serverID"></div>
+            $vgChart
         </td>
         <td>
-       $lvChart
+            $lvChart
         </td>
     </tr>
-       $lvRows
+        $vgRows
+        $lvRows
     <tr>
        <td colspan="3">
        $orgChart
