@@ -95,7 +95,6 @@ sub getdata {
                 $VGSize =~ s/'/\\'/;
 
                 $vgRows .= " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
-                $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
 
                 foreach my $lv (reverse sort { $lvm{'pv'}{$vg}{$a}{'size'} <=> $lvm{'pv'}{$vg}{$b}{'size'} } keys %{$lvm{$vg}{'lvs'}}) {    #sort by LV size
                     my $LVFSLevel = $lvm{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
@@ -123,6 +122,7 @@ sub getdata {
                     $lvRows .= "{c:[{v:'$lv'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
                     $orgRows .= "{c:[{v:'$lv<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
                 }
+                $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
             }
             chop $vgRows;   #trim last comma
             chop $lvRows;
