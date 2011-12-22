@@ -202,18 +202,27 @@ sub html {  #HTML template
     <style type="text/css">
         $css
     </style>
+    <!--[if !IE]>-->
     <script type="text/javascript" src="http://www.google.com/jsapi"></script>
     <script type="text/javascript">
         $javascript
     </script>
  </head>
-  <div class="header">LVMchart - LVM Monitoring</div>
-  <body onload="init();">
-    <div id="message"></div>
+    <div class="header">LVMchart - LVM Monitoring</div>
+    <body onload="init();">
+        <div id="message"></div>
         <div align="center" id="data"></div>
-    <div id="warnings"></div>
-    <div id="javascr" />
-</body>
+        <div id="warnings"></div>
+        <div id="javascr" />
+    </body>
+    <!--<![endif]-->
+    <!--[if IE]>
+  </head>
+    <div class="header">LVMchart - LVM Monitoring</div>
+    <body>
+        <div id="warnings">Internet Explorer is not supported. Please use a different browser.</div>
+    </body>
+    <![endif]-->
 </html>
 EOF
 }
