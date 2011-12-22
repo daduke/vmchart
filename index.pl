@@ -210,9 +210,9 @@ sub html {  #HTML template
   <div class="header">LVMchart - LVM Monitoring</div>
   <body onload="init();">
     <div id="message"></div>
-    <script type="text/javascript" id="js"></script>
         <div align="center" id="data"></div>
     <div id="warnings"></div>
+    <div id="javascr" />
 </body>
 </html>
 EOF
@@ -312,7 +312,7 @@ sub pvData {
                                     'legend': 'right',
                                     'legendTextStyle': {fontSize:10},
                                     'isStacked': true,
-                    'colors':['#3366cc','#3399ff','magenta','#dc3912','#ff9900'],
+                                    'colors':['#3366cc','#3399ff','magenta','#dc3912','#ff9900'],
                                     'vAxis': {'title': '$UNIT','gridlineColor':'#808080'},
                                     'hAxis':{'title':'Total: $PVSize$UNIT'}});
 EOF
@@ -342,12 +342,12 @@ sub vgData {
     //vg chart
         var vg_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('vg_chart_$serverID'));
         vg_chart_$serverID.draw(vg_data_$serverID, {'title':'Usage of Volume Groups',
-                                    'backgroundColor':'#C9D5E5',
-                                    'legend': 'right',
-                                    'legendTextStyle': {fontSize:10},
-                                    'isStacked': true,
-                    'colors':['#3366cc','#3399ff','magenta','#dc3912'],
-                                    'vAxis': {'title': '$UNIT','gridlineColor':'#808080'}});
+                                'backgroundColor':'#C9D5E5',
+                                'legend': 'right',
+                                'legendTextStyle': {fontSize:10},
+                                'isStacked': true,
+                                'colors':['#3366cc','#3399ff','magenta','#dc3912'],
+                                'vAxis': {'title': '$UNIT','gridlineColor':'#808080'}});
 EOF
 }
 
@@ -453,8 +453,8 @@ EOF
 
 sub javascript {
     return <<EOF;
-           google.load('visualization', '1', {packages: ['corechart']});
-           google.load('visualization', '1', {packages:['orgchart']});
+    google.load('visualization', '1', {packages: ['corechart']});
+    google.load('visualization', '1', {packages:['orgchart']});
 
     var numberOfServersDisplayed = 0;
     var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
@@ -489,12 +489,22 @@ sub javascript {
             var numberOfServersReceived = server.length -1;         //the number of servers in the array
 
             for(i=numberOfServersDisplayed; i< numberOfServersReceived; i++){           //check if all the server data will be displayed
-                var serverdata = server[i].split(/ENDOFELEMENT/g);  //Split into elements(js/markup/wanings)
-                document.getElementById('data').innerHTML += "<table class='table'>" + serverdata[1] + "</table>";
-                document.getElementById('js').innerHTML += serverdata[0];           //insert data
+                var serverdata = server[i].split(/ENDOFELEMENT/g);                      //Split into elements(js/markup/wanings)
+                var div=document.createElement('div');                                  //create container for new table
+                div.innerHTML += "<table class='table'>" + serverdata[1] + "</table>";  //workaround for friggin IE that can't dynamically modify tables
+                document.getElementById('data').appendChild(div);                       //load new table into DOM
+
+                var javascr=document.getElementById('javascr'); //javascript element
+                var JSchild=document.createElement('script');   //create new js block
+                JSchild.type='text/javascript';
+                JSchild.text=serverdata[0];
+                var jsid = 'js'+i;
+                JSchild.id = jsid;
+                javascr.appendChild(JSchild);                   //and append it
+                eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
+
                 document.getElementById('warnings').innerHTML += serverdata[2];
                 document.getElementById('message').innerHTML = "Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers";
-                eval(document.getElementById('js').innerHTML);
                 numberOfServersDisplayed++;
             }
         }
