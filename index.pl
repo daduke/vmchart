@@ -19,7 +19,7 @@ my $numberOfServers = @servers;
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
 my $BARSPERCHART = 8;    #number of LV in bar chart
-my $ORGSPERCHART = 8;   #number of LV in org chart
+my $ORGSPERCHART = 10;   #number of LV in org chart
 my $CHARTSPERLINE = 3;  #number of LV charts in one line
 my $MAXCHARTFACTOR = 10; #max factor in one LV chart
 
@@ -202,27 +202,23 @@ sub html {  #HTML template
     <style type="text/css">
         $css
     </style>
-    <!--[if !IE]>-->
     <script type="text/javascript" src="http://www.google.com/jsapi"></script>
     <script type="text/javascript">
         $javascript
     </script>
  </head>
-    <div class="header">LVMchart - LVM Monitoring</div>
-    <body onload="init();">
-        <div id="message"></div>
+  <div class="header">LVMchart - LVM Monitoring</div>
+  <body onload="init();">
+    <div id="message"></div>
         <div align="center" id="data"></div>
-        <div id="warnings"></div>
-        <div id="javascr" />
-    </body>
+    <div id="javascr" />
+    <!--[if !IE]>-->
+    <div id="warnings"></div>
     <!--<![endif]-->
     <!--[if IE]>
-  </head>
-    <div class="header">LVMchart - LVM Monitoring</div>
-    <body>
-        <div id="warnings">Internet Explorer is not supported. Please use a different browser.</div>
-    </body>
+    <div id="warnings">Please make sure you have Internet Explorer's compatibility mode disabled.<br /></div>
     <![endif]-->
+</body>
 </html>
 EOF
 }
