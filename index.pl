@@ -290,8 +290,6 @@ sub pvData {
     my ($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $PVSize, $UNIT) = @_;
     return <<EOF;
     //pv data
-        // Define a formatter for the Numbers
-        var formatter = new google.visualization.NumberFormat({suffix:'$UNIT',groupingSymbol:'\\''});
         var pv_data_$serverID = new google.visualization.DataTable(
           {
             cols: [{id:'FSFill',label:'$labels{"fsfill"}', type:'number'},  // FSLevel
@@ -304,11 +302,6 @@ sub pvData {
           ]
           });
 
-        formatter.format(pv_data_$serverID, 0); //Apply formatter to columns
-        formatter.format(pv_data_$serverID, 1);
-        formatter.format(pv_data_$serverID, 2);
-        formatter.format(pv_data_$serverID, 3);
-        formatter.format(pv_data_$serverID, 4);
 
     //pv chart
         var pv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('pv_chart_$serverID'));
@@ -339,10 +332,6 @@ sub vgData {
                   ]
           });
 
-        formatter.format(vg_data_$serverID, 1);
-        formatter.format(vg_data_$serverID, 2);
-        formatter.format(vg_data_$serverID, 3);
-        formatter.format(vg_data_$serverID, 4);
 
     //vg chart
         var vg_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('vg_chart_$serverID'));
@@ -371,9 +360,6 @@ sub lvData {
                   ]
           });
 
-        formatter.format(lv_data_$serverID, 1);
-        formatter.format(lv_data_$serverID, 2);
-        formatter.format(lv_data_$serverID, 3);
 
     //lv chart
         var lv_chart_$serverID = new google.visualization.ColumnChart(document.getElementById('lv_chart_$serverID'));
@@ -401,7 +387,6 @@ sub orgChart {
                 ]
           });
 
-        formatter.format(org_data_$serverID, 2);
 
     //orgchart chart
         var org_chart_$serverID = new google.visualization.OrgChart(document.getElementById('org_chart_$serverID'));
@@ -458,8 +443,7 @@ EOF
 
 sub javascript {
     return <<EOF;
-    google.load('visualization', '1', {packages: ['corechart']});
-    google.load('visualization', '1', {packages:['orgchart']});
+    google.load('visualization', '1', {packages: ['corechart', 'orgchart'], 'language': 'ch'});
 
     var numberOfServersDisplayed = 0;
     var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
