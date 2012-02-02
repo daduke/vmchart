@@ -292,7 +292,7 @@ sub pvData {
     //pv data
         var pv_data_$serverID = new google.visualization.DataTable(
           {
-            cols: [{id:'FSFill',label:'$labels{"fsfill"}', type:'number'},  // FSLevel
+            cols: [{id:'FSFill',label:'$labels{"fsfill"}', type:'string'},  // FSLevel
                    {id:'UsedInFS',label:'$labels{"infs"}', type:'number'},  // inFS - FSLevel
                    {id:'inLV',label:'$labels{"inlv"}', type:'number'},      // inLV
                    {id:'inVG', label:'$labels{"invg"}',type:'number'},      // inVG
