@@ -207,7 +207,7 @@ sub html {  #HTML template
         $javascript
     </script>
  </head>
-  <div class="header">LVMchart - LVM Monitoring</div>
+  <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">LVMchart - LVM Monitoring</a></div>
   <body onload="init();">
     <div id="message"></div>
         <div align="center" id="data"></div>
