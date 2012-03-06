@@ -20,9 +20,7 @@ while (<HOSTS>) {
     push @servers, $host;
     $info{$host} = $info;
 }
-#my @servers = <HOSTS>;
 close HOSTS;
-#chomp @servers;
 my $numberOfServers = @servers;
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
