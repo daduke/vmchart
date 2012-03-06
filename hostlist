@@ -1,6 +1,7 @@
-phd-san-gw1
-phd-san-gw2
-phd-bkp-gw1
-heustock
-etscherzapfen
-abellio
+phd-san-gw2 - Group shares
+phd-home - Home directories
+phd-san-gw1 - Astro data
+phd-bkp-gw1 - Backups
+heustock - Debian mirror + downloads
+etscherzapfen - BackupPC D-PHYS
+abellio - BackupPC Astro

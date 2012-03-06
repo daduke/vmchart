@@ -11,10 +11,18 @@ use JSON;
 use Number::Format;
 use POSIX qw(ceil);
 
+my @servers;
+my %info;
 open HOSTS, "hostlist";
-my @servers = <HOSTS>;
+while (<HOSTS>) {
+    my ($host, $info) = split / - /;
+    chomp $info;
+    push @servers, $host;
+    $info{$host} = $info;
+}
+#my @servers = <HOSTS>;
 close HOSTS;
-chomp @servers;
+#chomp @servers;
 my $numberOfServers = @servers;
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
@@ -263,7 +271,7 @@ sub chartTable {    #chart table HTML
     }
 
     return <<EOF;
-      <tr><td>Host $server</td></tr>
+      <tr><td>Host $server ($info{$server})</td></tr>
       <tr>
         <td>
           <div class="chart" id="pv_chart_$serverID"></div>
