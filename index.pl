@@ -109,7 +109,8 @@ sub getdata {
                     my $LVInLV = $lvm{'pv'}{$vg}{$lv}{'inLV'};
                     my $LVSize = $lvm{'pv'}{$vg}{$lv}{'size'};
 
-                    $lvs{$lv}{'size'} = $LVSize;
+                    my $key = "${lv}_$vg";
+                    $lvs{$key}{'size'} = $LVSize;
                     $LVSize = $format->format_number($LVSize);
                     $LVSize =~ s/'/\\'/;
 
@@ -120,8 +121,8 @@ sub getdata {
                         $orgRows = "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
                     }
 
-                    $lvs{$lv}{'js'} = "{c:[{v:'$lv'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
-                    $orgRows .= "{c:[{v:'$lv<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
+                    $lvs{$key}{'js'} = "{c:[{v:'$lv ($vg)'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
+                    $orgRows .= "{c:[{v:'$lv ($vg)<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
 
                     $orgcount++;
                 }
