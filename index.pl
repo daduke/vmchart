@@ -36,7 +36,7 @@ my $format = new Number::Format(-thousands_sep   => '\'', -decimal_point   => '.
 
 my $option = $ENV{'QUERY_STRING'};
 
-#verification of the querystring
+#verification of the query string
 if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
