@@ -2,7 +2,8 @@
 
 # LVMchart - browser-based generator for nice charts of LVM usage across different file servers
 # (c) 2011 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
-# incremental AJAX loading by Philip Ezhukattil <philipe@phys.ethz.ch>
+# incremental AJAX loading by Philip Ezhukattil <philipe@phys.ethz.ch> and Claude Becker
+# <beckercl@phys.ethz.ch>
 # distributed under the terms of the GNU General Public License version 2 or any later version.
 # project website: http://wiki.phys.ethz.ch/readme/lvmchart
 
@@ -28,10 +29,12 @@ my $BARSPERCHART = 8;    #number of LV in bar chart
 my $ORGSPERCHART = 10;   #number of LV in org chart
 my $CHARTSPERLINE = 3;  #number of LV charts in one line
 my $MAXCHARTFACTOR = 10; #max factor in one LV chart
+my $GLOBALUNIT = 'TB';   #summary data is in TB
 
 my (%lvm, $UNIT);
 my ($markup, $javascript);
 my $warnings = '';
+my $backends = '';
 my $format = new Number::Format(-thousands_sep   => '\'', -decimal_point   => '.');
 
 my $option = $ENV{'QUERY_STRING'};
@@ -47,6 +50,7 @@ if ($option eq 'data'){
 }
 
 sub getdata {
+    my %backends;
     foreach my $server (@servers) {
         my $json_text;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper lvm2.pl`)) {
@@ -75,6 +79,20 @@ sub getdata {
             }
             next unless (keys %{$lvm{'vgs'}});  #skip host if no vgs present
 
+            foreach my $backend (sort keys %{$lvm{'backends'}}) {
+                foreach my $slice (sort { $a cmp $b } keys %{$lvm{'backends'}{$backend}{'slices'}}) {
+                    my $vg = $lvm{'backends'}{$backend}{'slices'}{$slice}{'vg'} || '<span class="free">free space</span>';
+                    my $size = units($lvm{'backends'}{$backend}{'slices'}{$slice}{'size'}, $UNIT, $GLOBALUNIT);
+                    $backends{$backend}{'size'} += $size;
+                    $backends{$backend}{$server}{'size'} += $size;
+                    $backends{$backend}{$server}{$vg}{'size'} += $size;
+                    $backends{$backend}{'slices'} .= "$slice, \\n";
+                    $backends{$backend}{$server}{'slices'} .= "$slice, \\n";
+                    $backends{$backend}{$server}{$vg}{'slices'} .= "$slice, \\n";
+                    $backends{'global'}{$server}{$vg}{'slices'} .= "$backend-$slice, \\n";
+                }
+            }
+
             my $PVFSLevel = $lvm{'FSLevel'};    #get PV data
             my $PVInFS = $lvm{'inFS'} - $PVFSLevel;
             my $PVInLV = $lvm{'inLV'};
@@ -100,9 +118,17 @@ sub getdata {
                 $VGSize = $format->format_number($VGSize);
                 $VGSize =~ s/'/\\'/;
 
-                $vgs{$vg}{'js'} = " {c:[{v:'$vg'},{v:$VGFSLevel},{v:$VGInFS},{v:$VGInLV},{v:$VGInVG}]},";
+                $vgs{$vg}{'js'} = " {c:[{v: '$vg'},{v: $VGFSLevel, f:'$VGFSLevel $UNIT'},{v: $VGInFS, f:'$VGInFS $UNIT'},{v: $VGInLV, f:'$VGInLV $UNIT'},{v: $VGInVG, f:'$VGInVG $UNIT'}]},";
 
 
+                my $VGslices;
+                if ($VGslices = $backends{'global'}{$server}{$vg}{'slices'}) {
+                    $VGslices = "LUNs for this VG: \\n" . $VGslices;
+                    $VGslices = substr $VGslices, 0, -4;
+                } else {
+                    $VGslices = "Volume group";
+                }
+                $orgRows .= "[{v: '$vg',f: '$vg<div class=\"parent\">$VGSize $UNIT</div>'}, '','$VGslices'],";
                 foreach my $lv (reverse sort { $lvm{'pv'}{$vg}{$a}{'size'} <=> $lvm{'pv'}{$vg}{$b}{'size'} } keys %{$lvm{$vg}{'lvs'}}) {    #sort by LV size
                     my $LVFSLevel = $lvm{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
                     my $LVInFS = $lvm{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
@@ -118,15 +144,14 @@ sub getdata {
                         $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
                         $lvGrpOrg++;
                         $orgChart .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>\n";
-                        $orgRows = "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
+                        $orgRows = "[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize $UNIT</div>'}, '','Volume group'],\n";
                     }
 
-                    $lvs{$key}{'js'} = "{c:[{v:'$lv ($vg)'},{v:$LVFSLevel},{v:$LVInFS},{v:$LVInLV}]},";   #fill LV and org chart data
-                    $orgRows .= "{c:[{v:'$lv ($vg)<div class=\"child\">$LVSize$UNIT</div>'},{v:'$vg'},'LV size']},";
+                    $lvs{$key}{'js'} = "{c:[{v: '$lv ($vg)'},{v: $LVFSLevel, f: '$LVFSLevel $UNIT'},{v: $LVInFS, f: '$LVInFS $UNIT'},{v: $LVInLV, f: '$LVInLV $UNIT'}]},";   #fill LV and org chart data
+                    $orgRows .= "[{v:'$lv<div class=\"child\">$LVSize $UNIT</div>'},'$vg','Logical volume'],\n";
 
                     $orgcount++;
                 }
-                $orgRows .= "{c:[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize$UNIT</div>'}, '','VG size']},";
             }
 
 
@@ -189,12 +214,65 @@ sub getdata {
 
             #Clear variables for next server
             $javascript = $markup = $warnings = "";
+
+        }
+    }   #end foreach server
+
+    $markup = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
+    $javascript = '';
+    my $beGrpOrg = 0;
+    my $orgcount = 0;
+    my ($orgRows, $BEslices, $FEslices, $VGslices);
+    foreach my $backend (sort keys %backends) {
+        next if (grep /\b$backend\b/, qw(size global));
+        my $backendSize = $backends{$backend}{'size'};
+        $BEslices = "LUNs on this backend: \\n" . $backends{$backend}{'slices'};
+        $BEslices = substr $BEslices, 0, -4;
+        $orgRows .= "[{v: '$backend',f: '$backend<div class=\"parent\">$backendSize $GLOBALUNIT</div>'}, '', '$BEslices'],\n";
+        foreach my $server (sort keys %{$backends{$backend}}) {
+            next if (grep /\b$server\b/, qw(size slices));
+            my $serverSize = $backends{$backend}{$server}{'size'};
+            $FEslices = "LUNs for this frontend: \\n" . $backends{$backend}{$server}{'slices'};
+            $FEslices = substr $FEslices, 0, -4;
+            $orgRows .= "[{v: '$server-$backend',f: '$server<div class=\"child\">$serverSize $GLOBALUNIT</div>'}, '$backend', '$FEslices'],\n";
+            foreach my $vg (sort keys %{$backends{$backend}{$server}}) {
+                next if (grep /\b$vg\b/, qw(size slices));
+                my $VGsize = $backends{$backend}{$server}{$vg}{'size'};
+                $VGslices = "LUNs for this VG: \\n" . $backends{$backend}{$server}{$vg}{'slices'};
+                $VGslices = substr $VGslices, 0, -4;
+
+                if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
+                    $javascript .= orgChart("backends_$beGrpOrg", $orgRows);
+                    $beGrpOrg++;
+                    $markup .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_backends_$beGrpOrg\"></div>\n";
+                    $orgRows = "[{v: '$backend',f: '$backend<div class=\"parent\">$backendSize $GLOBALUNIT</div>'}, '', '$BEslices'],\n";
+                    $orgRows .= "[{v: '$server-$backend',f: '$server<div class=\"child\">$serverSize $GLOBALUNIT</div>'}, '$backend', '$FEslices'],\n";
+                }
+                $orgRows .= "[{v: '$vg-$backend-$server',f: '$vg<div class=\"grandchild\">$VGsize $GLOBALUNIT</div>'}, '$server-$backend', '$VGslices'],\n";
+                $orgcount++;
+            }
         }
     }
+    $javascript .= orgChart("backends_$beGrpOrg", $orgRows);
+    print "BACKENDS";
+    print "$markup";
+    print "ENDOFELEMENT";
+    print "$javascript";
 }
 
 
 #----------------
+sub units {
+    my ($value, $unit, $globalunit) = @_;
+    return $value if ($unit eq $globalunit);
+    if ($globalunit eq 'GB') {
+        $value *= 1024;
+    } else {
+        $value /= 1024;
+    }
+    return $value;
+}
+
 sub html {  #HTML template
     my $css = css();
     my $javascript = javascript();
@@ -217,8 +295,9 @@ sub html {  #HTML template
   <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">LVMchart - LVM Monitoring</a></div>
   <body onload="init();">
     <div id="message"></div>
-        <div align="center" id="data"></div>
-    <div id="javascr" />
+    <div align="center" id="data"><h2>Frontend information</h2></div>
+    <div id="javascr"></div>
+    <div align="center" id="backends"></div>
     <!--[if !IE]>-->
     <div id="warnings"></div>
     <!--<![endif]-->
@@ -306,7 +385,7 @@ sub pvData {
                    {id:'inVG', label:'$labels{"invg"}',type:'number'},      // inVG
                    {id:'inPV',label:'$labels{"inpv"}',type:'number'}        // inPV
           ],
-            rows: [{c:[{v:'Disk space'},{v:$PVFSLevel},{v:$PVInFS},{v:$PVInLV},{v:$PVInVG},{v:$PVInPV}]}
+            rows: [{c:[{v:'Disk space'},{v: $PVFSLevel, f: '$PVFSLevel $UNIT'},{v: $PVInFS, f: '$PVInFS $UNIT'},{v: $PVInLV, f: '$PVInLV $UNIT'},{v: $PVInVG, f: '$PVInVG $UNIT'},{v: $PVInPV, f: '$PVInPV $UNIT'}]}
           ]
           });
 
@@ -385,15 +464,11 @@ sub orgChart {
     my ($serverID, $orgRows) = @_;
     return <<EOF;
     //orgchart data
-        var org_data_$serverID = new google.visualization.DataTable(
-          {
-            cols: [{id:'Name',label:'Name', type:'string'},
-                   {id:'Parent', label:'Parent',type:'string'},
-                   {id:'LV Size',label:'LV Size',type:'number'}
-                  ],
-            rows: [$orgRows
-                ]
-          });
+        var org_data_$serverID = new google.visualization.arrayToDataTable([
+            ['Name', 'Parent', 'Tooltip'],
+            ['', '', ''],
+            $orgRows
+          ]);
 
 
     //orgchart chart
@@ -411,23 +486,25 @@ sub css {
     font-weight: bold;
     text-align: center;
 }
+
 #warnings {
     color: red;
 }
 
 #message {
-    line-height: 6em;
+    line-height: 3em;
     color: green;
     font-weight: bold;
     text-align: center;
 }
+
 body {
     background: #C9D5E5;
     font-family: Arial;
     border: 0 none;
 }
 
-h1{
+h1 {
     font-size: 14px;
     font-weight: bold;
 }
@@ -445,6 +522,16 @@ div.parent {
 div.child {
     color:#008800;
     font-style:italic;
+}
+
+div.grandchild {
+    color:#000088;
+    font-style:italic;
+}
+
+span.free {
+    color:#f00;
+    font-weight: bold;
 }
 EOF
 }
@@ -510,8 +597,22 @@ sub javascript {
     function ajaxOnResult(){
         if ((req.readyState == 4) && (req.status == 200 || req.status == 0)) {
             ajaxDisplayServer();                                    //double check if all the server data was displayed
-            document.getElementById("message").style.visibility = 'hidden';
-            }
+            document.getElementById('message').style.visibility = 'hidden';
+            var backends = req.responseText.split(/BACKENDS/g);
+            var content = backends[1].split(/ENDOFELEMENT/g);
+            var markup = content[0];
+            var javascript = content[1];
+            document.getElementById('backends').innerHTML += '<h2>Backend information</h2>'+markup;
+
+            var javascr=document.getElementById('javascr'); //javascript element
+            var JSchild=document.createElement('script');   //create new js block
+            JSchild.type='text/javascript';
+            JSchild.text=javascript;
+            var jsid = 'jsbackend';
+            JSchild.id = jsid;
+            javascr.appendChild(JSchild);                   //and append it
+            eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
+        }
     }
 EOF
 }
