@@ -44,7 +44,7 @@ if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
     &getdata();
-}else{
+} else {
     print "Content-type:text/html\r\n\r\n";
     print html();
 }
