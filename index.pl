@@ -7,13 +7,23 @@
 # distributed under the terms of the GNU General Public License version 2 or any later version.
 # project website: http://wiki.phys.ethz.ch/readme/lvmchart
 
+# 2011/08/04 v1.0 - initial working version
+# 2012/04/22 v2.0 - added backend information
+# 2012/04/25 v2.1 - added PV change log to detect defective backends
+
 use strict;
 use JSON;
 use Number::Format;
-use POSIX qw(ceil);
+use POSIX qw(ceil strftime);
+use File::Copy;
+use MLDBM qw(DB_File);  #to store hashes of hashes
+use Fcntl;              #to set file permissions
+use Clone qw(clone);   #to close hashes of hashes
+
 
 my @servers;
-my %info;
+my (%info, %PVlayout);
+my %PVhistory = ();
 open HOSTS, "hostlist";
 while (<HOSTS>) {
     my ($host, $info) = split / - /;
@@ -23,6 +33,7 @@ while (<HOSTS>) {
 }
 close HOSTS;
 my $numberOfServers = @servers;
+
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LV', 'invg' => 'available in VG', 'inpv' => 'available in PV');
 my $BARSPERCHART = 8;    #number of LV in bar chart
@@ -90,6 +101,7 @@ sub getdata {
                     $backends{$backend}{$server}{'slices'} .= "$slice, \\n";
                     $backends{$backend}{$server}{$vg}{'slices'} .= "$slice, \\n";
                     $backends{'global'}{$server}{$vg}{'slices'} .= "$backend-$slice, \\n";
+                    $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
             }
 
@@ -257,7 +269,54 @@ sub getdata {
     print "BACKENDS";
     print "$markup";
     print "ENDOFELEMENT";
+    print "show backends" if ($orgcount);
+    print "ENDOFELEMENT";
     print "$javascript";
+    print "ENDOFELEMENT";
+
+    #create PV diff log
+    my $changes;
+    tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666);
+    my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
+    foreach my $server (sort keys %PVlayout) {
+        foreach my $vg (sort keys %{$PVlayout{$server}}) {
+            foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
+                if (exists($PVhistory{$server}{$vg}{$slice})) {
+                    delete $PVtemp{$server}{$vg}{$slice};
+                } else {
+                    $changes .= "<tr><td><span class=\"free\">ADD</span> LUN <i>$slice</i></td><td> to VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+                }
+            }
+        }
+    }
+    foreach my $server (sort keys %PVtemp) {
+        foreach my $vg (sort keys %{$PVtemp{$server}}) {
+            foreach my $slice (sort keys %{$PVtemp{$server}{$vg}}) {
+                if ($PVtemp{$server}{$vg}{$slice}) {
+                    $changes .= "<tr><td><span class=\"remove\">REMOVE</span> LUN <i>$slice</i></td><td> from VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+                }
+            }
+        }
+    }
+    %PVhistory = %{ clone (\%PVlayout) };
+    untie %PVhistory;
+
+    open OLDLOG, "< changelog";
+    my @oldchanges = <OLDLOG>;
+    close OLDLOG;
+
+    if ($changes) {
+        my $timestamp = POSIX::strftime("%Y/%m/%d %H:%M:%S", localtime);
+        $changes = "$timestamp:<br />$changes";
+        print "<table>$changes</table><br /><br />@oldchanges";
+
+        open LOG, "> newlog";
+        print LOG "<table>$changes</table><br /><br />@oldchanges";
+        close LOG;
+        move("newlog", "changelog");
+    } else {
+        print "@oldchanges";
+    }
 }
 
 
@@ -287,7 +346,7 @@ sub html {  #HTML template
     <style type="text/css">
         $css
     </style>
-    <script type="text/javascript" src="http://www.google.com/jsapi"></script>
+    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
     <script type="text/javascript">
         $javascript
     </script>
@@ -298,6 +357,8 @@ sub html {  #HTML template
     <div align="center" id="data"><h2>Frontend information</h2></div>
     <div id="javascr"></div>
     <div align="center" id="backends"></div>
+    <hr />
+    <div align="left" id="changes"></div>
     <!--[if !IE]>-->
     <div id="warnings"></div>
     <!--<![endif]-->
@@ -529,10 +590,21 @@ div.grandchild {
     font-style:italic;
 }
 
+div#changes {
+    padding-left: 40px;
+    font-size: 70%;
+}
+
 span.free {
+    color:#0b0;
+    font-weight: bold;
+}
+
+span.remove {
     color:#f00;
     font-weight: bold;
 }
+
 EOF
 }
 
@@ -601,8 +673,11 @@ sub javascript {
             var backends = req.responseText.split(/BACKENDS/g);
             var content = backends[1].split(/ENDOFELEMENT/g);
             var markup = content[0];
-            var javascript = content[1];
-            document.getElementById('backends').innerHTML += '<h2>Backend information</h2>'+markup;
+            var orgchart = content[1];
+            var javascript = content[2];
+            var changes = content[3];
+            if (orgchart.length > 0) document.getElementById('backends').innerHTML += '<h2>Backend information</h2>'+markup;
+            if (changes.length > 0) document.getElementById('changes').innerHTML += '<h2>PV change log</h2>'+changes;
 
             var javascr=document.getElementById('javascr'); //javascript element
             var JSchild=document.createElement('script');   //create new js block
