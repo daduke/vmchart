@@ -311,7 +311,7 @@ sub getdata {
         print "<table>$changes</table><br /><br />@oldchanges";
 
         open LOG, "> newlog";
-        print LOG "<table>$changes</table><br /><br />@oldchanges";
+        print LOG "<table>$changes</table><br /><br />\n\n\n@oldchanges";
         close LOG;
         move("newlog", "changelog");
     } else {
