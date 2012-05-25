@@ -146,6 +146,7 @@ sub getdata {
                     my $LVInFS = $lvm{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
                     my $LVInLV = $lvm{'pv'}{$vg}{$lv}{'inLV'};
                     my $LVSize = $lvm{'pv'}{$vg}{$lv}{'size'};
+                    my $FSType = $lvm{'pv'}{$vg}{$lv}{'FSType'};
 
                     my $key = "${lv}_$vg";
                     $lvs{$key}{'size'} = $LVSize;
@@ -159,7 +160,7 @@ sub getdata {
                         $orgRows = "[{v:'$vg',f:'$vg<div class=\"parent\">$VGSize $UNIT</div>'}, '','Volume group'],\n";
                     }
 
-                    $lvs{$key}{'js'} = "{c:[{v: '$lv ($vg)'},{v: $LVFSLevel, f: '$LVFSLevel $UNIT'},{v: $LVInFS, f: '$LVInFS $UNIT'},{v: $LVInLV, f: '$LVInLV $UNIT'}]},";   #fill LV and org chart data
+                    $lvs{$key}{'js'} = "{c:[{v: '$lv ($vg): $FSType'},{v: $LVFSLevel, f: '$LVFSLevel $UNIT'},{v: $LVInFS, f: '$LVInFS $UNIT'},{v: $LVInLV, f: '$LVInLV $UNIT'}]},";   #fill LV and org chart data
                     $orgRows .= "[{v:'$lv<div class=\"child\">$LVSize $UNIT</div>'},'$vg','Logical volume'],\n";
 
                     $orgcount++;
