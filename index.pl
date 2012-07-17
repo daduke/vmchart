@@ -63,6 +63,7 @@ if ($option eq 'data'){
 sub getdata {
     my %backends;
     my $emptyTable;
+    my $i;  #to color available slices
     foreach my $server (@servers) { #iterate over servers
         my $json_text;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
@@ -91,15 +92,19 @@ sub getdata {
             }
             next unless (keys %{$VMdata{'vgs'}});  #skip host if no vgs present
 
+            my $class;
             foreach my $backend (sort keys %{$VMdata{'backends'}}) {   #populate backend information hash
+                my $j;
                 foreach my $slice (sort { $a cmp $b } keys %{$VMdata{'backends'}{$backend}{'slices'}}) {
                     my $vg = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'};
                     if ($vg eq 'freespace') {
                         my $size = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
+                        $class = ($i % 2)?'class="bg"':'';
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
-                        $emptyTable .= "<tr><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
+                        $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
                         my $lv = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                         $backends{'global'}{$server}{$lv}{'slices'} .= "$backend-$slice, \\n";
+                        $j = 1;
                     }
                     my $size = units($VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'}, $UNIT, $GLOBALUNIT);
                     $backends{$backend}{'size'} += $size;
@@ -116,6 +121,7 @@ sub getdata {
 
                     $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
+                $i++ if ($j);
             }
 
             my $PVFSLevel = $VMdata{'FSLevel'};    #get PV data
@@ -730,6 +736,10 @@ span.remove {
 #avail th {
     border-bottom: 2px solid #333;
     border-right: 1px solid #aaa;
+}
+
+#avail tr.bg {
+    background-color: #ccc;
 }
 
 #avail td {
