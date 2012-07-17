@@ -65,7 +65,7 @@ sub getdata {
     my $emptyTable;
     foreach my $server (@servers) { #iterate over servers
         my $json_text;
-        if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart_test.pl`)) {
+        if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
         } else {
             my $json = JSON->new->allow_nonref;
