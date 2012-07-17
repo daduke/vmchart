@@ -99,7 +99,7 @@ sub getdata {
                     my $vg = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'};
                     if ($vg eq 'freespace') {
                         my $size = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
-                        $class = ($i % 2)?'class="bg"':'';
+                        $class = ($i % 2)?'class="bg1"':'class="bg2"';
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                         $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
                         my $lv = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
@@ -738,8 +738,12 @@ span.remove {
     border-right: 1px solid #aaa;
 }
 
-#avail tr.bg {
-    background-color: #ccc;
+#avail tr.bg1 {
+    background-color: #ddd;
+}
+
+#avail tr.bg2 {
+    background-color: #bbb;
 }
 
 #avail td {
