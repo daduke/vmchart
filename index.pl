@@ -102,7 +102,7 @@ sub getdata {
                         $class = ($i % 2)?'class="bg1"':'class="bg2"';
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                         $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
-                        my $lv = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
+                        my $lv = $vmtype;
                         $backends{'global'}{$server}{$lv}{'slices'} .= "$backend-$slice, \\n";
                         $j = 1;
                     }
@@ -115,6 +115,7 @@ sub getdata {
                     $backends{$backend}{$server}{$vg}{'slices'} .= "$slice, \\n";
                     $backends{'global'}{$server}{$vg}{'slices'} .= "$backend-$slice, \\n";
                     $backends{'global'}{$server}{$vg}{'vmtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
+                    $backends{'global'}{$server}{$vg}{'raidtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} || '';
                     if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'btrfs') {
                         $backends{'global'}{$server}{'btrfs'}{'slices'} .= "$backend-$slice, \\n";
                     }
@@ -205,6 +206,10 @@ sub getdata {
                         if ($LVslices) {
                             $LVslices = "LUNs for this volume: \\n" . $LVslices;
                             $LVslices = substr $LVslices, 0, -4;
+                        }
+                        if (my $raid = $backends{'global'}{$server}{$lv}{'raidtype'}) {
+                            $raid = uc($raid);
+                            $FSType .= ", $raid";
                         }
                         $orgRows .= "[{v:'$lv<div class=\"child btrfs\">$LVSize $UNIT ($FSType)</div>'},'$vg','$LVslices'],\n";
                     }
