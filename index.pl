@@ -20,6 +20,7 @@ use File::Copy;
 use MLDBM qw(DB_File);  #to store hashes of hashes
 use Fcntl;              #to set file permissions
 use Clone qw(clone);   #to clone hashes of hashes
+#use Storable qw(dclone);
 
 #use Data::Dumper;
 #open L, ">/tmp/log";
@@ -48,7 +49,7 @@ my (%VMdata, $UNIT);
 my ($markup, $javascript);
 my $warnings = '';
 
-my $option = $ENV{'QUERY_STRING'};
+my $option = $ENV{'QUERY_STRING'} || '';
 
 #determine whether we are in HTML or AJAX mode
 if ($option eq 'data'){
@@ -63,7 +64,7 @@ if ($option eq 'data'){
 sub getdata {
     my %backends;
     my $emptyTable;
-    my $i;  #to color available slices
+    my $i = 0;  #to color available slices
     foreach my $server (@servers) { #iterate over servers
         my $json_text;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
@@ -144,7 +145,8 @@ sub getdata {
                 my $vmType = ($vg eq 'btrfs')?'btrfs':'lvm2';
                 if ($vmType ne 'btrfs') {   #non-BTRFS
                     my $VGFSLevel = $VMdata{'pv'}{$vg}{'FSLevel'} || 0; #get VG data
-                    my $VGInFS = $VMdata{'pv'}{$vg}{'inFS'} - $VGFSLevel;
+                    my $VGInFS = $VMdata{'pv'}{$vg}{'inFS'} || 0;
+                    $VGInFS -= $VGFSLevel;                              #subtract filling level
                     my $VGInLV = $VMdata{'pv'}{$vg}{'inLV'} || 0;
                     my $VGInVG = $VMdata{'pv'}{$vg}{'inVG'} || 0;
 
@@ -264,8 +266,8 @@ sub getdata {
             }
 
             chop $vgRows;   #trim last comma
-            chop $lvRows{'lvm2'};
-            chop $lvRows{'btrfs'};
+            chop $lvRows{'lvm2'} if ($lvRows{'lvm2'});
+            chop $lvRows{'btrfs'} if ($lvRows{'btrfs'});
             chop $orgRows;
 
             $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
@@ -335,7 +337,7 @@ sub getdata {
         }
     }
 
-    $javascript .= orgChart("backends_$beGrpOrg", $orgRows);
+    $javascript .= orgChart("backends_$beGrpOrg", $orgRows) if ($orgcount);
     print "BACKENDS";
     print "$markup" if ($orgcount);
     print "ENDOFELEMENT";
@@ -346,30 +348,32 @@ sub getdata {
 
     #create PV diff log
     my $changes;
-    tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666);
-    my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
-    foreach my $server (sort keys %PVlayout) {
-        foreach my $vg (sort keys %{$PVlayout{$server}}) {
-            foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
-                if (exists($PVhistory{$server}{$vg}{$slice})) {
-                    delete $PVtemp{$server}{$vg}{$slice};
-                } else {
-                    $changes .= "<tr><td><span class=\"free\">ADD</span> LUN <i>$slice</i></td><td> to VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+    if (tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666)) {
+        my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
+            #segfaults but still works?????
+        foreach my $server (sort keys %PVlayout) {
+            foreach my $vg (sort keys %{$PVlayout{$server}}) {
+                foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
+                    if (exists($PVhistory{$server}{$vg}{$slice})) {
+                        delete $PVtemp{$server}{$vg}{$slice};
+                    } else {
+                        $changes .= "<tr><td><span class=\"free\">ADD</span> LUN <i>$slice</i></td><td> to VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+                    }
                 }
             }
         }
-    }
-    foreach my $server (sort keys %PVtemp) {
-        foreach my $vg (sort keys %{$PVtemp{$server}}) {
-            foreach my $slice (sort keys %{$PVtemp{$server}{$vg}}) {
-                if ($PVtemp{$server}{$vg}{$slice}) {
-                    $changes .= "<tr><td><span class=\"remove\">REMOVE</span> LUN <i>$slice</i></td><td> from VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+        foreach my $server (sort keys %PVtemp) {
+            foreach my $vg (sort keys %{$PVtemp{$server}}) {
+                foreach my $slice (sort keys %{$PVtemp{$server}{$vg}}) {
+                    if ($PVtemp{$server}{$vg}{$slice}) {
+                        $changes .= "<tr><td><span class=\"remove\">REMOVE</span> LUN <i>$slice</i></td><td> from VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+                    }
                 }
             }
         }
+        %PVhistory = %{ clone (\%PVlayout) };
+        untie %PVhistory;
     }
-    %PVhistory = %{ clone (\%PVlayout) };
-    untie %PVhistory;
 
     open OLDLOG, "< changelog";
     my @oldchanges = <OLDLOG>;
@@ -458,18 +462,21 @@ sub chartTable {    #chart table HTML
     }
 
     foreach my $vmType qw(lvm2 btrfs) {
-        my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE);
+        my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE) || 0;
         my $num = 0;
         for my $row (1..$rows) {
             $chartRows{$vmType} .= "<tr>";
             for my $chart (1..$CHARTSPERLINE) {
-                $chartRows{$vmType} .= "<td><div class=\"chart\" id=\"$IDs{$vmType}[$num++]\"></div></td>";
+                my $td = ($IDs{$vmType}[$num])?"<div class=\"chart\" id=\"$IDs{$vmType}[$num]\"></div>":"&nbsp;";
+                $chartRows{$vmType} .= "<td>$td</td>";
+                $num++;
             }
             $chartRows{$vmType} .= "</tr>";
         }
     }
 
-    my ($LVMchart, $BTRFSchart);
+    my $LVMchart = '';
+    my $BTRFSchart = '';
     if ($haveLVM) {
         $LVMchart =<<EOF
       <tr><td><h2>LVM2 overview</h2></td></tr>
