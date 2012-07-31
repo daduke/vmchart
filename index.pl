@@ -4,6 +4,7 @@
 # (c) 2011 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
 # incremental AJAX loading by Philip Ezhukattil <philipe@phys.ethz.ch> and Claude Becker
 # <beckercl@phys.ethz.ch>
+# multithreading by Philip Ezhukattil <philipe@phys.ethz.ch> and Claude Becker <beckercl@phys.ethz.ch>
 # distributed under the terms of the GNU General Public License version 2 or any later version.
 # project website: http://wiki.phys.ethz.ch/readme/lvmchart
 
@@ -12,6 +13,7 @@
 # 2012/04/25 v2.1 - added PV change log to detect defective backends
 # 2012/07/10 v3.0 - added BTRFS support
 # 2012/07/11 v3.1 - added navigation menu
+# 2012/07/31 v3.2 - added threads
 
 use strict;
 use JSON;
@@ -20,14 +22,21 @@ use File::Copy;
 use MLDBM qw(DB_File);  #to store hashes of hashes
 use Fcntl;              #to set file permissions
 use Clone qw(clone);   #to clone hashes of hashes
-#use Storable qw(dclone);
-
+use threads qw[ yield ];
+use threads::shared;
+use Thread::Queue;
+use List::MoreUtils qw/ uniq /;
+use FreezeThaw qw(freeze thaw);
+use File::Basename;
 #use Data::Dumper;
 #open L, ">/tmp/log";
 
+my $myself = basename($0);
 my @servers;
 my (%info, %PVlayout);
 my %PVhistory = ();
+my @encodedHash :shared;
+our $emptyTable :shared;
 open HOSTS, "hostlist";
 while (<HOSTS>) {
     my ($host, $info) = split / - /;
@@ -37,6 +46,7 @@ while (<HOSTS>) {
 }
 close HOSTS;
 my $numberOfServers = @servers;
+
 
 my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LVM2 LV', 'invg' => 'available in LVM2 VG', 'inpv' => 'available in LVM2 PV', 'unalloc' => 'not allocated');
 my $BARSPERCHART = 8;    #number of LV in bar chart
@@ -55,17 +65,35 @@ my $option = $ENV{'QUERY_STRING'} || '';
 if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
-    &getdata();
-} else {
+
+    use constant NTHREADS => 7;
+    my $Q = Thread::Queue->new;
+    my @threads = map threads->create( \&getdata, $Q ), 1 .. NTHREADS;
+
+    while (@servers) {
+        my $server = shift @servers;
+        $Q->enqueue($server);
+    }
+    $Q->enqueue( (undef) x NTHREADS );
+    $_->join for @threads;
+
+    while ($Q->pending()) {
+        select(undef, undef, undef, 0.1);   #sleep for 0.1 s
+    }
+    &getBackends();
+ } else {
     print "Content-type:text/html\r\n\r\n";
     print html();
 }
 
 sub getdata {
-    my %backends;
-    my $emptyTable;
     my $i = 0;  #to color available slices
-    foreach my $server (@servers) { #iterate over servers
+    my $emptyTablePart = '';
+    my %backends;
+    my $frontendInfo;
+    my $Q = shift;
+    my $tid = threads->tid;
+    while (my $server = $Q->dequeue) {
         my $json_text;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
@@ -102,7 +130,7 @@ sub getdata {
                         my $size = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
                         $class = ($i % 2)?'class="bg1"':'class="bg2"';
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
-                        $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
+                        $emptyTablePart .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
                         my $lv = $vmtype;
                         $backends{'global'}{$server}{$lv}{'slices'} .= "$backend-$slice, \\n";
                         $j = 1;
@@ -120,7 +148,6 @@ sub getdata {
                     if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'btrfs') {
                         $backends{'global'}{$server}{'btrfs'}{'slices'} .= "$backend-$slice, \\n";
                     }
-
                     $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
                 $i++ if ($j);
@@ -153,8 +180,7 @@ sub getdata {
                     $vgs{$vg}{'size'} = $VGSize;
 
                     $vgs{$vg}{'js'} = " {c:[{v: '$vg'},{v: $VGFSLevel, f:'$VGFSLevel $UNIT'},{v: $VGInFS, f:'$VGInFS $UNIT'},{v: $VGInLV, f:'$VGInLV $UNIT'},{v: $VGInVG, f:'$VGInVG $UNIT'}]},";
-
-                    if ($VGslices = $backends{'global'}{$server}{$vg}{'slices'}) {
+                    if ($VGslices =  $backends{'global'}{$server}{$vg}{'slices'}) {
                         $VGslices = "LUNs for this VG: \\n" . $VGslices;
                         $VGslices = substr $VGslices, 0, -4;
                     } else {
@@ -175,9 +201,7 @@ sub getdata {
                     my $LVInFS = $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
                     my $LVInLV = $VMdata{'pv'}{$vg}{$lv}{'inLV'};
                     my $LVSize = $VMdata{'pv'}{$vg}{$lv}{'size'};
-
                     my $FSType = $VMdata{'pv'}{$vg}{$lv}{'FSType'};
-
                     my $key = "${lv}_$vg";
 
                     if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
@@ -276,23 +300,33 @@ sub getdata {
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
             $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{'lvm2'}+1, $GrpChart{'btrfs'}+1, $haveLVM, $haveBTRFS);
 
+            {
+                lock($emptyTable);
+                $emptyTable .=  $emptyTablePart;
+                lock(@encodedHash);
+                push(@encodedHash, freeze(%backends));
+            }
+
             #Print information about this server
-            print $javascript;
-            print "ENDOFELEMENT";
-            print $markup;
-            print "ENDOFELEMENT";
-            print "$server";
-            print "ENDOFELEMENT";
-            print "$warnings";
-            print "ENDOFSERVER";
+            $frontendInfo .= $javascript;
+            $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= $markup;
+            $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= "$server";
+            $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= "$warnings";
+            $frontendInfo .= "ENDOFSERVER";
+            print $frontendInfo;
 
             #Clear variables for next server
             $javascript = $markup = $warnings = "";
-
         }
-    }   #end foreach server
+    }
+}
 
-    #create backend information orgchart
+#create backend information orgchart
+sub getBackends {
+    my %backends = map {thaw($_)} @encodedHash;
     $markup = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
     $javascript = '';
     my $beGrpOrg = 0;
@@ -313,8 +347,10 @@ sub getdata {
             foreach my $vg (sort keys %{$backends{$backend}{$server}}) {
                 next if (grep /\b$vg\b/, qw(size slices));
                 my $VGsize = $backends{$backend}{$server}{$vg}{'size'};
-
-                my $vmType = $backends{'global'}{$server}{$vg}{'vmtype'};
+                my $vmType = '';
+                if ( exists $backends{'global'}{$server}{$vg}{'vmtype'} ) {
+                    $vmType = $backends{'global'}{$server}{$vg}{'vmtype'};
+                }
                 if ($vmType eq 'btrfs') {
                     $VGslices = "LUNs in BTRFS: \\n" . $backends{$backend}{$server}{$vg}{'slices'};
                     $VGslices = substr $VGslices, 0, -4;
@@ -392,8 +428,6 @@ sub getdata {
         print "@oldchanges";
     }
 }
-
-
 #----------------
 sub units {
     my ($value, $unit, $globalunit) = @_;
@@ -779,7 +813,7 @@ sub javascript {
 
     function init(){
         //Use ajax to load server data
-        ajaxLoad("index.pl?data", ajaxOnResult);
+        ajaxLoad("$myself?data", ajaxOnResult);
     }
 
     function ajaxLoad(url, callback){
