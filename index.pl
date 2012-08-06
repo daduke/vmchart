@@ -97,11 +97,14 @@ sub getdata {
         my $json_text;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
+            print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
         } else {
             my $json = JSON->new->allow_nonref;
             my $VMdata;
             if (!($VMdata = $json->decode($json_text))) {
-                $warnings .= "could not get LVM data from server $server<br />\n"; next;
+                $warnings .= "could not get LVM data from server $server<br />\n";
+                print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
+                next;
             }
             %VMdata = %$VMdata;
 
@@ -276,7 +279,7 @@ sub getdata {
                         $maxInLVGraph = $lvs{$vmType}{$lv}{'size'};
                     }
                     if ( ($lvcount && !($lvcount % $BARSPERCHART))
-                        || ($lvs{$vmType}{$lv}{'size'} && (($maxInLVGraph / $lvs{$vmType}{$lv}{'size'})) > $MAXCHARTFACTOR) ) {
+                        || ($lvs{$vmType}{$lv}{'size'} != 0 && (($maxInLVGraph / $lvs{$vmType}{$lv}{'size'})) > $MAXCHARTFACTOR) ) {
                             #if LV chart is full or bars get too short, create a new one
                         $javascript .= lvData("${serverID}_$GrpChart{$vmType}", $lvRows{$vmType}, $vmType);
                         $GrpChart{$vmType}++;
@@ -468,9 +471,9 @@ sub html {  #HTML template
     <div align="center" id="backends"></div>
     <div id="emptySlices"></div>
     <hr />
-    <a  name="log"></a><div align="left" id="changes"></div>
+    <a name="log"></a><div align="left" id="changes"></div>
     <!--[if !IE]>-->
-    <div id="warnings"></div>
+    <a name="warnings"></a><div id="warnings"></div>
     <!--<![endif]-->
     <!--[if IE]>
     <div id="warnings">Please make sure you have Internet Explorer's compatibility mode disabled.<br /></div>
@@ -847,22 +850,25 @@ sub javascript {
                 var servername=serverdata[2];
                 var warnings=serverdata[3];
 
-                var div=document.createElement('div');                                  //create container for new table
-                div.innerHTML += "<table class='table'>" + markup + "</table>";         //workaround for friggin IE that can't dynamically modify tables
-                document.getElementById('data').appendChild(div);                       //load new table into DOM
-
-                var jsid = 'js'+i;
-                var javascr=document.getElementById('javascr'); //javascript element
-                var JSchild=document.createElement('script');   //create new js block
-                JSchild.type='text/javascript';
-                JSchild.text=js;
-                JSchild.id = jsid;
-                javascr.appendChild(JSchild);                   //and append it
-                eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
-
-                document.getElementById('felist').innerHTML +=  "<a href=\\"#" + servername + "\\">" + servername + "</a> | ";  //populate link list + warnings
                 document.getElementById('warnings').innerHTML += warnings;
-                document.getElementById('message').innerHTML = "<div><img src=\\"spinner.gif\\" /><div id=\\"counter\\">Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers</div></div>";
+
+                if (servername.length > 0) {
+                    var div=document.createElement('div');                                  //create container for new table
+                    div.innerHTML += "<table class='table'>" + markup + "</table>";         //workaround for friggin IE that can't dynamically modify tables
+                    document.getElementById('data').appendChild(div);                       //load new table into DOM
+
+                    var jsid = 'js'+i;
+                    var javascr=document.getElementById('javascr'); //javascript element
+                    var JSchild=document.createElement('script');   //create new js block
+                    JSchild.type='text/javascript';
+                    JSchild.text=js;
+                    JSchild.id = jsid;
+                    javascr.appendChild(JSchild);                   //and append it
+                    eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
+
+                    document.getElementById('felist').innerHTML +=  "<a href=\\"#" + servername + "\\">" + servername + "</a> | ";  //populate link list + warnings
+                    document.getElementById('message').innerHTML = "<div><img src=\\"spinner.gif\\" /><div id=\\"counter\\">Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers</div></div>";
+                }
                 numberOfServersDisplayed++;
             }
         }
@@ -882,6 +888,7 @@ sub javascript {
             var emptyslices = content[1];
             var javascript = content[2];
             var changes = content[3];
+            var warnings = document.getElementById('warnings').innerHTML;
 
             if (markup.length > 0) {                                            //we have backends!
                 document.getElementById('backends').innerHTML += '<a name="backends"></a><h1>Backend overview</h1>'+markup;
@@ -896,6 +903,10 @@ sub javascript {
             if (changes.length > 0) {                                           //we have a changelog
                 document.getElementById('changes').innerHTML += '<h1>PV change log</h1>'+changes;
                 document.getElementById('linklist').innerHTML += " • <a href=\\"#log\\">Volume history</a>";
+            }
+
+            if (warnings.length > 0) {                                           //we have a changelog
+                document.getElementById('linklist').innerHTML += " • <a href=\\"#warnings\\">Warnings</a>";
             }
 
             var javascr=document.getElementById('javascr'); //javascript element
