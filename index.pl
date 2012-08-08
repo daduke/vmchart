@@ -28,14 +28,14 @@ use Thread::Queue;
 use List::MoreUtils qw/ uniq /;
 use FreezeThaw qw(freeze thaw);
 use File::Basename;
-#use Data::Dumper;
-#open L, ">/tmp/log";
 
 my $myself = basename($0);
 my @servers;
-my (%info, %PVlayout);
+my %info;
 my %PVhistory = ();
-my @encodedHash :shared;
+my @serializedBackends :shared;
+my @serializedLayout :shared;
+my @serializedEmptySlices :shared;
 our $emptyTable :shared;
 open HOSTS, "hostlist";
 while (<HOSTS>) {
@@ -87,14 +87,14 @@ if ($option eq 'data'){
 }
 
 sub getdata {
-    my $i = 0;  #to color available slices
-    my $emptyTablePart = '';
+    my %emptyTablePart;
     my %backends;
     my $frontendInfo;
     my $Q = shift;
     my $tid = threads->tid;
     while (my $server = $Q->dequeue) {
         my $json_text;
+        my %PVlayout;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
             print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
@@ -124,19 +124,17 @@ sub getdata {
             }
             next unless (keys %{$VMdata{'vgs'}});  #skip host if no vgs present
 
-            my $class;
             foreach my $backend (sort keys %{$VMdata{'backends'}}) {   #populate backend information hash
                 my $j;
                 foreach my $slice (sort { $a cmp $b } keys %{$VMdata{'backends'}{$backend}{'slices'}}) {
                     my $vg = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'};
                     if ($vg eq 'freespace') {
                         my $size = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
-                        $class = ($i % 2)?'class="bg1"':'class="bg2"';
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
-                        $emptyTablePart .= "<tr $class><td>$backend</td><td>$slice</td><td>$vmtype</td><td class=\"r\">$size $UNIT</td></tr>\n";
+                        $emptyTablePart{$backend}{$slice}{$vmtype}{'size'} = $size;
+                        $emptyTablePart{$backend}{$slice}{$vmtype}{'unit'} = $UNIT;
                         my $lv = $vmtype;
                         $backends{'global'}{$server}{$lv}{'slices'} .= "$backend-$slice, \\n";
-                        $j = 1;
                     }
                     my $size = units($VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'}, $UNIT, $GLOBALUNIT);
                     $backends{$backend}{'size'} += $size;
@@ -153,7 +151,6 @@ sub getdata {
                     }
                     $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
-                $i++ if ($j);
             }
 
             my $PVFSLevel = $VMdata{'FSLevel'};    #get PV data
@@ -303,11 +300,14 @@ sub getdata {
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
             $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{'lvm2'}+1, $GrpChart{'btrfs'}+1, $haveLVM, $haveBTRFS);
 
+            #pass per-thread hashes to global master hashes
             {
-                lock($emptyTable);
-                $emptyTable .=  $emptyTablePart;
-                lock(@encodedHash);
-                push(@encodedHash, freeze(%backends));
+                lock(@serializedLayout);
+                push(@serializedLayout, freeze(%PVlayout));
+                lock(@serializedEmptySlices);
+                push(@serializedEmptySlices, freeze(%emptyTablePart));
+                lock(@serializedBackends);
+                push(@serializedBackends, freeze(%backends));
             }
 
             #Print information about this server
@@ -329,13 +329,18 @@ sub getdata {
 
 #create backend information orgchart
 sub getBackends {
-    my %backends = map {thaw($_)} @encodedHash;
+    my $emptyTable;
+    my %backends = map {thaw($_)} @serializedBackends;
+    my %PVlayout = map {thaw($_)} @serializedLayout;
+    my %emptySlices = map {thaw($_)} @serializedEmptySlices;
     $markup = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
     $javascript = '';
+    my $i = 0;
     my $beGrpOrg = 0;
     my $orgcount = 0;
     my ($orgRows, $BEslices, $FEslices, $VGslices);
     foreach my $backend (sort keys %backends) {
+        my ($class, $j);
         next if (grep /\b$backend\b/, qw(size global));
         my $backendSize = $backends{$backend}{'size'};
         $BEslices = "LUNs on this backend: \\n" . $backends{$backend}{'slices'};
@@ -374,6 +379,16 @@ sub getBackends {
                 $orgcount++;
             }
         }
+        $class = ($i % 2)?'class="bg2"':'class="bg1"';
+        foreach my $slice (sort keys %{$emptySlices{$backend}}) {
+            foreach my $vm (sort keys %{$emptySlices{$backend}{$slice}}) {
+                my $size = $emptySlices{$backend}{$slice}{$vm}{'size'};
+                my $unit = $emptySlices{$backend}{$slice}{$vm}{'unit'};
+                $emptyTable.= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
+                $j = 1;
+            }
+        }
+        $i++ if ($j);
     }
 
     $javascript .= orgChart("backends_$beGrpOrg", $orgRows) if ($orgcount);
@@ -387,32 +402,31 @@ sub getBackends {
 
     #create PV diff log
     my $changes;
-    if (tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666)) {
-        my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
-            #segfaults but still works?????
-        foreach my $server (sort keys %PVlayout) {
-            foreach my $vg (sort keys %{$PVlayout{$server}}) {
-                foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
-                    if (exists($PVhistory{$server}{$vg}{$slice})) {
-                        delete $PVtemp{$server}{$vg}{$slice};
-                    } else {
-                        $changes .= "<tr><td><span class=\"free\">ADD</span> LUN <i>$slice</i></td><td> to VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
-                    }
+    tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666);
+    my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
+        #segfaults but still works?????
+    foreach my $server (sort keys %PVlayout) {
+        foreach my $vg (sort keys %{$PVlayout{$server}}) {
+            foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
+                if (exists($PVhistory{$server}{$vg}{$slice})) {
+                    delete $PVtemp{$server}{$vg}{$slice};
+                } else {
+                    $changes .= "<tr><td><span class=\"free\">ADD</span> LUN <i>$slice</i></td><td> to VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
                 }
             }
         }
-        foreach my $server (sort keys %PVtemp) {
-            foreach my $vg (sort keys %{$PVtemp{$server}}) {
-                foreach my $slice (sort keys %{$PVtemp{$server}{$vg}}) {
-                    if ($PVtemp{$server}{$vg}{$slice}) {
-                        $changes .= "<tr><td><span class=\"remove\">REMOVE</span> LUN <i>$slice</i></td><td> from VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
-                    }
-                }
-            }
-        }
-        %PVhistory = %{ clone (\%PVlayout) };
-        untie %PVhistory;
     }
+    foreach my $server (sort keys %PVtemp) {
+        foreach my $vg (sort keys %{$PVtemp{$server}}) {
+            foreach my $slice (sort keys %{$PVtemp{$server}{$vg}}) {
+                if ($PVtemp{$server}{$vg}{$slice}) {
+                    $changes .= "<tr><td><span class=\"remove\">REMOVE</span> LUN <i>$slice</i></td><td> from VG <i>$vg</i></td><td> on frontend <i>$server</i></td></tr>\n";
+                }
+            }
+        }
+    }
+    %PVhistory = %{ clone (\%PVlayout) };
+    untie %PVhistory;
 
     open OLDLOG, "< changelog";
     my @oldchanges = <OLDLOG>;
