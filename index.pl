@@ -66,18 +66,15 @@ if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
 
-    use constant NTHREADS => 7;
+    use constant NTHREADS => 6;
+
     my $Q = Thread::Queue->new;
-    my @threads = map threads->create( \&getdata, $Q ), 1 .. NTHREADS;
+    my @threads = map threads->create( \&getdata, $Q ), 1 .. NTHREADS;  #create N threads
+    $Q->enqueue($_) for @servers;                                       #queue all servers
+    $Q->enqueue( (undef) x NTHREADS );                                  #flush queue
+    $_->join for @threads;                                              #start threading
 
-    while (@servers) {
-        my $server = shift @servers;
-        $Q->enqueue($server);
-    }
-    $Q->enqueue( (undef) x NTHREADS );
-    $_->join for @threads;
-
-    while ($Q->pending()) {
+    while ($Q->pending()) {                                             #wait till queue is done
         select(undef, undef, undef, 0.1);   #sleep for 0.1 s
     }
     &getBackends();
@@ -87,17 +84,18 @@ if ($option eq 'data'){
 }
 
 sub getdata {
-    my %emptyTablePart;
-    my %backends;
-    my $frontendInfo;
     my $Q = shift;
     my $tid = threads->tid;
     while (my $server = $Q->dequeue) {
+        my %emptyTablePart;
+        my %backends;
+        my $frontendInfo;
         my $json_text;
         my %PVlayout;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
             print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
+            next;
         } else {
             my $json = JSON->new->allow_nonref;
             my $VMdata;
@@ -107,6 +105,7 @@ sub getdata {
                 next;
             }
             %VMdata = %$VMdata;
+            next unless (keys %{$VMdata{'vgs'}});  #skip host if no vgs present
 
             my $numLVs = 0; #count LV
             foreach my $vg (keys %{$VMdata{'vgs'}}) {
@@ -122,7 +121,6 @@ sub getdata {
             if ($VMdata{'warning'}) {
                 $warnings .= "Host $server: ".$VMdata{'warning'}."<br />\n";
             }
-            next unless (keys %{$VMdata{'vgs'}});  #skip host if no vgs present
 
             foreach my $backend (sort keys %{$VMdata{'backends'}}) {   #populate backend information hash
                 my $j;
@@ -842,7 +840,7 @@ sub javascript {
     }
 
     function ajaxOnProgress(req) {
-        if (req.readyState !=4){                        //while the data are received
+        if (req.readyState != 4) {                        //while the data are received
              var msg = document.getElementById("message");
              if(msg.innerHTML == ''){
               msg.innerHTML = '<div><img src="spinner.gif" /><div id="counter">Loading Server 1 of $numberOfServers</div></div>';
@@ -888,7 +886,7 @@ sub javascript {
         }
     }
 
-    function ajaxOnResult(){
+    function ajaxOnResult() {
         if ((req.readyState == 4) && (req.status == 200 || req.status == 0)) {  //after all data has come in
             ajaxDisplayServer();                                                //make double sure all server data has been processed
             document.getElementById('message').style.display = 'none';     //hide server countdown
