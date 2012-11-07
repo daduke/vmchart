@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 # VMchart - browser-based generator for nice charts of LVM and BTRFS usage across different file servers
 # (c) 2011 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
@@ -16,27 +16,49 @@
 # 2012/07/31 v3.2 - added threads
 
 use strict;
+use warnings;
 use JSON;
 use POSIX qw(ceil strftime);
-use File::Copy;
 use MLDBM qw(DB_File);  #to store hashes of hashes
+use Clone qw(clone);    #to clone hashes of hashes
 use Fcntl;              #to set file permissions
-use Clone qw(clone);   #to clone hashes of hashes
-use threads qw[ yield ];
+use File::Copy;
+use File::Basename;
+use threads qw(yield);
 use threads::shared;
 use Thread::Queue;
-use List::MoreUtils qw/ uniq /;
+use List::MoreUtils qw(uniq);
 use FreezeThaw qw(freeze thaw);
-use File::Basename;
 
 my $myself = basename($0);
 my @servers;
 my %info;
 my %PVhistory = ();
-my @serializedBackends :shared;
-my @serializedLayout :shared;
+my $warnings  = '';
+my (%VMdata, $UNIT);
+my ($markup, $javascript);
+my $emptyTable            :shared;
+my @serializedBackends    :shared;
+my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
-our $emptyTable :shared;
+
+#define parameters
+use constant NTHREADS => 6;
+my $BARSPERCHART   =  8;    #number of LV in bar chart
+my $ORGSPERCHART   =  9;    #number of LV in org chart
+my $CHARTSPERLINE  =  3;    #number of LV charts in one line
+my $MAXCHARTFACTOR = 10;    #max factor in one LV chart
+my $GLOBALUNIT     = 'TB';  #summary data is in TB
+my %labels = (
+    'fsfill'  => 'FS filling level',
+    'infs'    => 'available in FS',
+    'inlv'    => 'available in LVM2 LV',
+    'invg'    => 'available in LVM2 VG',
+    'inpv'    => 'available in LVM2 PV',
+    'unalloc' => 'not allocated',
+);
+
+#read hostnames from file
 open HOSTS, "hostlist";
 while (<HOSTS>) {
     my ($host, $info) = split / - /;
@@ -47,26 +69,11 @@ while (<HOSTS>) {
 close HOSTS;
 my $numberOfServers = @servers;
 
-
-my %labels = ( 'fsfill' => 'FS filling level', 'infs' => 'available in FS', 'inlv' => 'available in LVM2 LV', 'invg' => 'available in LVM2 VG', 'inpv' => 'available in LVM2 PV', 'unalloc' => 'not allocated');
-my $BARSPERCHART = 8;    #number of LV in bar chart
-my $ORGSPERCHART = 9;   #number of LV in org chart
-my $CHARTSPERLINE = 3;  #number of LV charts in one line
-my $MAXCHARTFACTOR = 10; #max factor in one LV chart
-my $GLOBALUNIT = 'TB';   #summary data is in TB
-
-my (%VMdata, $UNIT);
-my ($markup, $javascript);
-my $warnings = '';
-
-my $option = $ENV{'QUERY_STRING'} || '';
-
 #determine whether we are in HTML or AJAX mode
+my $option = $ENV{'QUERY_STRING'} || '';
 if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
-
-    use constant NTHREADS => 6;
 
     my $Q = Thread::Queue->new;
     my @threads = map threads->create( \&getdata, $Q ), 1 .. NTHREADS;  #create N threads
@@ -75,17 +82,18 @@ if ($option eq 'data'){
     $_->join for @threads;                                              #start threading
 
     while ($Q->pending()) {                                             #wait till queue is done
-        select(undef, undef, undef, 0.1);   #sleep for 0.1 s
+        select(undef, undef, undef, 0.1);                               #sleep for 0.1 s
     }
     &getBackends();
- } else {
+} else {
     print "Content-type:text/html\r\n\r\n";
     print html();
 }
 
 sub getdata {
-    my $Q = shift;
+    my $Q   = shift;
     my $tid = threads->tid;
+
     while (my $server = $Q->dequeue) {
         my %emptyTablePart;
         my %backends;
@@ -115,8 +123,8 @@ sub getdata {
             }
 
             my $serverID = $server;
-            $serverID =~ s/-/_/g;   #Google chart API needs underscores
-            $UNIT = $VMdata{'unit'};   #TB or GB comes from the JSON
+            $serverID    =~ s/-/_/g;        #Google chart API needs underscores
+            $UNIT        = $VMdata{'unit'}; #TB or GB comes from the JSON
 
             if ($VMdata{'warning'}) {
                 $warnings .= "Host $server: ".$VMdata{'warning'}."<br />\n";
@@ -127,22 +135,21 @@ sub getdata {
                 foreach my $slice (sort { $a cmp $b } keys %{$VMdata{'backends'}{$backend}{'slices'}}) {
                     my $vg = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'};
                     if ($vg eq 'freespace') {
-                        my $size = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
+                        my $size   = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
                         my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                         $emptyTablePart{$backend}{$slice}{$vmtype}{'size'} = $size;
                         $emptyTablePart{$backend}{$slice}{$vmtype}{'unit'} = $UNIT;
-                        my $lv = $vmtype;
-                        $backends{'global'}{$server}{$lv}{'slices'} .= "$backend-$slice, \\n";
+                        $backends{'global'}{$server}{$vmtype}{'slices'}   .= "$backend-$slice, \\n";
                     }
                     my $size = units($VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'}, $UNIT, $GLOBALUNIT);
-                    $backends{$backend}{'size'} += $size;
-                    $backends{$backend}{$server}{'size'} += $size;
-                    $backends{$backend}{$server}{$vg}{'size'} += $size;
-                    $backends{$backend}{'slices'} .= "$slice, \\n";
-                    $backends{$backend}{$server}{'slices'} .= "$slice, \\n";
-                    $backends{$backend}{$server}{$vg}{'slices'} .= "$slice, \\n";
-                    $backends{'global'}{$server}{$vg}{'slices'} .= "$backend-$slice, \\n";
-                    $backends{'global'}{$server}{$vg}{'vmtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
+                    $backends{$backend}{'size'}                  += $size;
+                    $backends{$backend}{$server}{'size'}         += $size;
+                    $backends{$backend}{$server}{$vg}{'size'}    += $size;
+                    $backends{$backend}{'slices'}                .= "$slice, \\n";
+                    $backends{$backend}{$server}{'slices'}       .= "$slice, \\n";
+                    $backends{$backend}{$server}{$vg}{'slices'}  .= "$slice, \\n";
+                    $backends{'global'}{$server}{$vg}{'slices'}  .= "$backend-$slice, \\n";
+                    $backends{'global'}{$server}{$vg}{'vmtype'}   = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                     $backends{'global'}{$server}{$vg}{'raidtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} || '';
                     if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'btrfs') {
                         $backends{'global'}{$server}{'btrfs'}{'slices'} .= "$backend-$slice, \\n";
@@ -151,26 +158,27 @@ sub getdata {
                 }
             }
 
-            my $PVFSLevel = $VMdata{'FSLevel'};    #get PV data
-            my $PVInFS = $VMdata{'inFS'} - $PVFSLevel;
-            my $PVInLV = $VMdata{'inLV'};
-            my $PVInVG = $VMdata{'inVG'};
-            my $PVInPV = $VMdata{'inPV'};
-            my $unalloc = $VMdata{'unalloc'};
-            my $PVSize = $VMdata{'size'};
-            $javascript .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
+            my $PVFSLevel = $VMdata{'FSLevel'}; #get PV data
+            my $PVInFS    = $VMdata{'inFS'} - $PVFSLevel;
+            my $PVInLV    = $VMdata{'inLV'};
+            my $PVInVG    = $VMdata{'inVG'};
+            my $PVInPV    = $VMdata{'inPV'};
+            my $unalloc   = $VMdata{'unalloc'};
+            my $PVSize    = $VMdata{'size'};
+            $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
             my (%vgs, %lvs, $vgRows, %lvRows, $orgRows, $haveLVM, $haveBTRFS);
-            my $lvGrpOrg = 0;
-            my $orgcount = 0;
             my $VGslices;
+            my $lvGrpOrg  = 0;
+            my $orgcount  = 0;
             my $orgChart .= "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
+
             foreach my $vg (reverse sort { $VMdata{'pv'}{$a}{'size'} <=> $VMdata{'pv'}{$b}{'size'} } keys %{$VMdata{'vgs'}}) {   #iterate over VGs
                 my $VGSize = $VMdata{'pv'}{$vg}{'size'};
                 my $vmType = ($vg eq 'btrfs')?'btrfs':'lvm2';
                 if ($vmType ne 'btrfs') {   #non-BTRFS
                     my $VGFSLevel = $VMdata{'pv'}{$vg}{'FSLevel'} || 0; #get VG data
-                    my $VGInFS = $VMdata{'pv'}{$vg}{'inFS'} || 0;
+                    my $VGInFS    = $VMdata{'pv'}{$vg}{'inFS'}    || 0;
                     $VGInFS -= $VGFSLevel;                              #subtract filling level
                     my $VGInLV = $VMdata{'pv'}{$vg}{'inLV'} || 0;
                     my $VGInVG = $VMdata{'pv'}{$vg}{'inVG'} || 0;
@@ -192,21 +200,21 @@ sub getdata {
                     }
                 }
                 my $vgName = ($vg eq 'freespace')?'<span class="free">free space</span>':$vg;
-                $orgRows .= "[{v: '$vg',f: '$vgName<div class=\"parent\">$VGSize $UNIT</div>'}, '','$VGslices'],";
+                $orgRows  .= "[{v: '$vg',f: '$vgName<div class=\"parent\">$VGSize $UNIT</div>'}, '','$VGslices'],";
 
                 foreach my $lv (reverse sort { $VMdata{'pv'}{$vg}{$a}{'size'} <=> $VMdata{'pv'}{$vg}{$b}{'size'} } keys %{$VMdata{$vg}{'lvs'}}) {    #iterate over LVs, sorted by size
                     my $LVFSLevel = $VMdata{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
-                    my $LVInFS = $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
-                    my $LVInLV = $VMdata{'pv'}{$vg}{$lv}{'inLV'};
-                    my $LVSize = $VMdata{'pv'}{$vg}{$lv}{'size'};
-                    my $FSType = $VMdata{'pv'}{$vg}{$lv}{'FSType'};
-                    my $key = "${lv}_$vg";
+                    my $LVInFS    = $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
+                    my $LVInLV    = $VMdata{'pv'}{$vg}{$lv}{'inLV'};
+                    my $LVSize    = $VMdata{'pv'}{$vg}{$lv}{'size'};
+                    my $FSType    = $VMdata{'pv'}{$vg}{$lv}{'FSType'};
+                    my $key       = "${lv}_$vg";
 
                     if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
                         $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
                         $lvGrpOrg++;
                         $orgChart .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>\n";
-                        $orgRows = "[{v:'$vg',f:'$vg<div class=\"parent\">(cont\\'d)</div>'}, '','$VGslices'],\n";
+                        $orgRows   = "[{v:'$vg',f:'$vg<div class=\"parent\">(cont\\'d)</div>'}, '','$VGslices'],\n";
                     }
 
                     if ($vg ne 'freespace') {   #we don't want VG and LV graphs for free space
@@ -222,7 +230,7 @@ sub getdata {
                         }
                         $orgRows .= "[{v:'$lv<div class=\"child freespace\">$LVSize $UNIT ($FSType)</div>'},'$vg','$LVslices'],\n";
                     } elsif ($vmType eq 'lvm2') {
-                        $haveLVM = 1;
+                        $haveLVM  = 1;
                         $orgRows .= "[{v:'$lv<div class=\"child\">$LVSize $UNIT ($FSType)</div>'},'$vg','Logical volume'],\n";
                     } elsif ($vmType eq 'btrfs') {
                         $haveBTRFS = 1;
@@ -232,7 +240,7 @@ sub getdata {
                             $LVslices = substr $LVslices, 0, -4;
                         }
                         if (my $raid = $backends{'global'}{$server}{$lv}{'raidtype'}) {
-                            $raid = uc($raid);
+                            $raid    = uc($raid);
                             $FSType .= ", $raid";
                         }
                         $orgRows .= "[{v:'$lv<div class=\"child btrfs\">$LVSize $UNIT ($FSType)</div>'},'$vg','$LVslices'],\n";
@@ -243,8 +251,8 @@ sub getdata {
 
             #create VG and LV graphs
             my $maxInVGGraph = 0;
-            my $vgcount = 0;
-            my $vgGrpChart = 0;
+            my $vgcount      = 0;
+            my $vgGrpChart   = 0;
             foreach my $vg (reverse sort { $vgs{$a}{'size'} <=> $vgs{$b}{'size'} } keys %vgs) {
                 next if ($vg eq 'freespace');
                 if ($vgcount == 0) {
@@ -255,7 +263,7 @@ sub getdata {
                         #if VG chart is full or bars get too short, create a new one
                     $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
                     $vgGrpChart++;
-                    $vgRows = '';
+                    $vgRows  = '';
                     $vgcount = 0;
                     $maxInVGGraph = $vgs{$vg}{'size'};
                 }
@@ -265,8 +273,8 @@ sub getdata {
 
             my %GrpChart;
             foreach my $vmType qw(lvm2 btrfs) {
-                my $maxInLVGraph = 0;
-                my $lvcount = 0;
+                my $maxInLVGraph   = 0;
+                my $lvcount        = 0;
                 $GrpChart{$vmType} = 0;
 
                 foreach my $lv (reverse sort { $lvs{$vmType}{$a}{'size'} <=> $lvs{$vmType}{$b}{'size'} } keys %{$lvs{$vmType}}) {
@@ -288,12 +296,12 @@ sub getdata {
             }
 
             chop $vgRows;   #trim last comma
-            chop $lvRows{'lvm2'} if ($lvRows{'lvm2'});
+            chop $lvRows{'lvm2'}  if ($lvRows{'lvm2'});
             chop $lvRows{'btrfs'} if ($lvRows{'btrfs'});
             chop $orgRows;
 
-            $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
-            $javascript .= lvData("${serverID}_$GrpChart{'lvm2'}", $lvRows{'lvm2'}, 'lvm2') if ($haveLVM);
+            $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows) if ($vgRows);
+            $javascript .= lvData("${serverID}_$GrpChart{'lvm2'}",  $lvRows{'lvm2'},  'lvm2')  if ($haveLVM);
             $javascript .= lvData("${serverID}_$GrpChart{'btrfs'}", $lvRows{'btrfs'}, 'btrfs') if ($haveBTRFS);
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
             $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{'lvm2'}+1, $GrpChart{'btrfs'}+1, $haveLVM, $haveBTRFS);
@@ -308,7 +316,7 @@ sub getdata {
                 push(@serializedBackends, freeze(%backends));
             }
 
-            #Print information about this server
+            #print information about this server
             $frontendInfo .= $javascript;
             $frontendInfo .= "ENDOFELEMENT";
             $frontendInfo .= $markup;
@@ -319,7 +327,7 @@ sub getdata {
             $frontendInfo .= "ENDOFSERVER";
             print $frontendInfo;
 
-            #Clear variables for next server
+            #clear variables for next server
             $javascript = $markup = $warnings = "";
         }
     }
@@ -328,15 +336,16 @@ sub getdata {
 #create backend information orgchart
 sub getBackends {
     my $emptyTable;
-    my %backends = map {thaw($_)} @serializedBackends;
-    my %PVlayout = map {thaw($_)} @serializedLayout;
+    my %backends    = map {thaw($_)} @serializedBackends;
+    my %PVlayout    = map {thaw($_)} @serializedLayout;
     my %emptySlices = map {thaw($_)} @serializedEmptySlices;
-    $markup = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
-    $javascript = '';
-    my $i = 0;
+    my $i        = 0;
     my $beGrpOrg = 0;
     my $orgcount = 0;
+    $markup      = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
+    $javascript  = '';
     my ($orgRows, $BEslices, $FEslices, $VGslices);
+
     foreach my $backend (sort keys %backends) {
         my ($class, $j);
         next if (grep /\b$backend\b/, qw(size global));
@@ -344,12 +353,14 @@ sub getBackends {
         $BEslices = "LUNs on this backend: \\n" . $backends{$backend}{'slices'};
         $BEslices = substr $BEslices, 0, -4;
         $orgRows .= "[{v: '$backend',f: '$backend<div class=\"parent\">$backendSize $GLOBALUNIT</div>'}, '', '$BEslices'],\n";
+
         foreach my $server (sort keys %{$backends{$backend}}) {
             next if (grep /\b$server\b/, qw(size slices));
             my $serverSize = $backends{$backend}{$server}{'size'};
             $FEslices = "LUNs for this frontend: \\n" . $backends{$backend}{$server}{'slices'};
             $FEslices = substr $FEslices, 0, -4;
             $orgRows .= "[{v: '$server-$backend',f: '$server<div class=\"child\">$serverSize $GLOBALUNIT</div>'}, '$backend', '$FEslices'],\n";
+
             foreach my $vg (sort keys %{$backends{$backend}{$server}}) {
                 next if (grep /\b$vg\b/, qw(size slices));
                 my $VGsize = $backends{$backend}{$server}{$vg}{'size'};
@@ -368,21 +379,22 @@ sub getBackends {
                 if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
                     $javascript .= orgChart("backends_$beGrpOrg", $orgRows);
                     $beGrpOrg++;
-                    $markup .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_backends_$beGrpOrg\"></div>\n";
-                    $orgRows = "[{v: '$backend',f: '$backend<div class=\"parent\">(cont\\'d)</div>'}, '', '$BEslices'],\n";
+                    $markup  .= "<br /><br /><div class=\"orgchart\" id=\"org_chart_backends_$beGrpOrg\"></div>\n";
+                    $orgRows  = "[{v: '$backend',f: '$backend<div class=\"parent\">(cont\\'d)</div>'}, '', '$BEslices'],\n";
                     $orgRows .= "[{v: '$server-$backend',f: '$server<div class=\"child\">$serverSize $GLOBALUNIT</div>'}, '$backend', '$FEslices'],\n";
                 }
                 my $vgName = ($vg eq 'freespace')?'<span class="free">free space</span>':"$vg ($vmType)";
-                $orgRows .= "[{v: '$vg-$backend-$server',f: '$vgName<div class=\"grandchild\">$VGsize $GLOBALUNIT</div>'}, '$server-$backend', '$VGslices'],\n";
+                $orgRows  .= "[{v: '$vg-$backend-$server',f: '$vgName<div class=\"grandchild\">$VGsize $GLOBALUNIT</div>'}, '$server-$backend', '$VGslices'],\n";
                 $orgcount++;
             }
         }
         $class = ($i % 2)?'class="bg2"':'class="bg1"';
+
         foreach my $slice (sort keys %{$emptySlices{$backend}}) {
             foreach my $vm (sort keys %{$emptySlices{$backend}{$slice}}) {
                 my $size = $emptySlices{$backend}{$slice}{$vm}{'size'};
                 my $unit = $emptySlices{$backend}{$slice}{$vm}{'unit'};
-                $emptyTable.= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
+                $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
                 $j = 1;
             }
         }
@@ -403,6 +415,7 @@ sub getBackends {
     tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666);
     my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
         #segfaults but still works?????
+
     foreach my $server (sort keys %PVlayout) {
         foreach my $vg (sort keys %{$PVlayout{$server}}) {
             foreach my $slice (sort keys %{$PVlayout{$server}{$vg}}) {
@@ -432,7 +445,7 @@ sub getBackends {
 
     if ($changes) {
         my $timestamp = POSIX::strftime("%Y/%m/%d %H:%M:%S", localtime);
-        $changes = "$timestamp:<br />$changes";
+        $changes      = "$timestamp:<br />$changes";
         print "<table>$changes</table><br /><br />@oldchanges";
 
         open LOG, "> newlog";
@@ -446,6 +459,7 @@ sub getBackends {
 #----------------
 sub units {
     my ($value, $unit, $globalunit) = @_;
+
     return $value if ($unit eq $globalunit);
     if ($globalunit eq 'GB') {
         $value *= 1024;
@@ -455,9 +469,10 @@ sub units {
     return $value;
 }
 
-sub html {  #HTML template
-    my $css = css();
+sub html {
     my $javascript = javascript();
+    my $css        = css();
+
     return <<EOF;
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -495,11 +510,10 @@ sub html {  #HTML template
 EOF
 }
 
-sub chartTable {    #chart table HTML
+sub chartTable {
     my ($server, $serverID, $orgChart, $vgGrpChart, $lvGrpChart, $btrGrpChart, $haveLVM, $haveBTRFS) = @_;
-    my ($chart, %chartRows);
+    my ($chart, %chartRows, %IDs);
 
-    my %IDs;
     for my $id (0..$vgGrpChart-1) {
         push @{$IDs{'lvm2'}}, "vg_chart_${serverID}_$id";
     }
@@ -512,7 +526,7 @@ sub chartTable {    #chart table HTML
 
     foreach my $vmType qw(lvm2 btrfs) {
         my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE) || 0;
-        my $num = 0;
+        my $num  = 0;
         for my $row (1..$rows) {
             $chartRows{$vmType} .= "<tr>";
             for my $chart (1..$CHARTSPERLINE) {
@@ -524,7 +538,7 @@ sub chartTable {    #chart table HTML
         }
     }
 
-    my $LVMchart = '';
+    my $LVMchart   = '';
     my $BTRFSchart = '';
     if ($haveLVM) {
         $LVMchart =<<EOF
@@ -560,6 +574,7 @@ EOF
 
 sub pvData {
     my ($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT) = @_;
+
     return <<EOF;
     //pv data
         var pv_data_$serverID = new google.visualization.DataTable(
@@ -592,6 +607,7 @@ EOF
 
 sub vgData {
     my ($serverID, $vgRows) = @_;
+
     return <<EOF;
     //vg data
         var vg_data_$serverID = new google.visualization.DataTable(
@@ -621,13 +637,14 @@ EOF
 
 sub lvData {
     my ($serverID, $lvRows, $vmType) = @_;
+
     my $output =<<EOF;
     //lv data
         var lv_data_${vmType}_${serverID} = new google.visualization.DataTable(
           {
             cols: [{id:'LV',label:'LV', type:'string'},
                    {id:'FSFill', label:'$labels{"fsfill"}',type:'number'},  // FSLevel
-                   {id:'UsedInFS', label:'$labels{"infs"}',type:'number'}  // inFS - FSLevel
+                   {id:'UsedInFS', label:'$labels{"infs"}',type:'number'}   // inFS - FSLevel
 EOF
     if ($vmType eq 'lvm2') {
         $output .=<<EOF
@@ -657,6 +674,7 @@ EOF
 
 sub orgChart {
     my ($serverID, $orgRows) = @_;
+
     return <<EOF;
     //orgchart data
         var org_data_$serverID = new google.visualization.arrayToDataTable([

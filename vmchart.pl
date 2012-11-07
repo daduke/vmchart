@@ -77,10 +77,11 @@ if (-e "/opt/remotesshwrapper/vmchart.conf") {	#try to read config file
 	@excludeVG = qw(vg0);	#exclude system vg0
 }
 
+$VMdata{'unalloc'} = $VMdata{'inPV'} = $VMdata{'inVG'} = $VMdata{'inLV'} = $VMdata{'inFS'} = 0;
 #BTRFS support
 if (`which btrfs`) {
     my %btrfs;
-    my $btrfsInfo = `btrfs fi show`;
+    my $btrfsInfo = `btrfs fi show 2>/dev/null`;
     foreach my $fs (split /\n\n/, $btrfsInfo) {
         my @lines = split /\n/, $fs;
         my ($fsInfo) = shift @lines;
@@ -211,7 +212,6 @@ foreach my $pv (@pvs) {	#collect PV data
     }
 }
 
-$VMdata{'unalloc'} = 0;
 my @allSlices = </dev/iscsi/*>; #treat unassigned iSCSI slices
 foreach my $slice (@allSlices) {
     if(my ($backend, $device) = $slice =~ m#$PVpattern#) {
@@ -320,7 +320,7 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 #PV sanity checks
 my $sum = $VMdata{'unalloc'} + $VMdata{'inPV'} + $VMdata{'inVG'} + $VMdata{'inLV'} + $VMdata{'inFS'};
 if ( $VMdata{'size'} && (($VMdata{'size'} - $sum) / $VMdata{'size'}) > $WARNINGPERCENTAGE) {
-	$VMdata{'warning'} .= "numbers in PVs don't add up";
+	$VMdata{'warning'} .= "numbers in PVs don't add up $sum $VMdata{'size'}";
 }
 if ($UNIT eq 'g') {
 	$VMdata{'unit'} = 'GB';
