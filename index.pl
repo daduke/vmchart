@@ -29,6 +29,7 @@ use threads::shared;
 use Thread::Queue;
 use List::MoreUtils qw(uniq);
 use FreezeThaw qw(freeze thaw);
+use Math::Round qw(nearest);
 
 my $myself = basename($0);
 my @servers;
@@ -41,6 +42,7 @@ my $emptyTable            :shared;
 my @serializedBackends    :shared;
 my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
+my $grandTotal            :shared;
 
 #define parameters
 use constant NTHREADS => 6;
@@ -165,6 +167,7 @@ sub getdata {
             my $PVInPV    = $VMdata{'inPV'};
             my $unalloc   = $VMdata{'unalloc'};
             my $PVSize    = $VMdata{'size'};
+            $grandTotal += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
             $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
             my (%vgs, %lvs, $vgRows, %lvRows, $orgRows, $haveLVM, $haveBTRFS);
@@ -324,6 +327,10 @@ sub getdata {
             $frontendInfo .= "$server";
             $frontendInfo .= "ENDOFELEMENT";
             $frontendInfo .= "$warnings";
+            $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= "$grandTotal";
+            $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= "$GLOBALUNIT";
             $frontendInfo .= "ENDOFSERVER";
             print $frontendInfo;
 
@@ -395,6 +402,7 @@ sub getBackends {
                 my $size = $emptySlices{$backend}{$slice}{$vm}{'size'};
                 my $unit = $emptySlices{$backend}{$slice}{$vm}{'unit'};
                 $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
+                $grandTotal += nearest(.01, units($size, $unit, $GLOBALUNIT));
                 $j = 1;
             }
         }
@@ -408,6 +416,10 @@ sub getBackends {
     print "<br /><br /><a name=\"slices\"></a><h3 id=\"avail\" align=\"center\">Available slices</h3><table id=\"avail\" align=\"center\"><tr><th>Backend</th><th>Slice</th><th>Volume Mgmt.</th><th>Size</th></tr>$emptyTable</table>" if ($emptyTable);
     print "ENDOFELEMENT";
     print "$javascript";
+    print "ENDOFELEMENT";
+    print "$grandTotal";
+    print "ENDOFELEMENT";
+    print "$GLOBALUNIT";
     print "ENDOFELEMENT";
 
     #create PV diff log
@@ -489,7 +501,7 @@ sub html {
         $css
     </style>
  </head>
-  <div id="navigation">go to: <span id="linklist"><a href="#frontends">Frontends</a> [<span id="felist"> </span>]</span></div>
+  <div id="navigation">go to: <span id="linklist"><a href="#frontends">Frontends</a> [<span id="felist"> </span>]</span><span id="total"></span></div>
   <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">VMchart - LVM and BTRFS Monitoring</a></div>
   <body onload="init();">
     <div id="message"></div>
@@ -737,6 +749,11 @@ a[name] {
     font-size: 80%;
 }
 
+#total {
+    float: right;
+    padding-right: 10px;
+}
+
 h2 {
     border-bottom: 1px solid #aaa;
     font-size: 80%;
@@ -879,6 +896,8 @@ sub javascript {
                 var markup=serverdata[1];
                 var servername=serverdata[2];
                 var warnings=serverdata[3];
+                var total=serverdata[4];
+                var unit=serverdata[5];
 
                 document.getElementById('warnings').innerHTML += warnings;
 
@@ -897,6 +916,7 @@ sub javascript {
                     eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
 
                     document.getElementById('felist').innerHTML +=  "<a href=\\"#" + servername + "\\">" + servername + "</a> | ";  //populate link list + warnings
+                    document.getElementById('total').innerHTML =  total + " " + unit;  //show grand total
                     document.getElementById('message').innerHTML = "<div><img src=\\"spinner.gif\\" /><div id=\\"counter\\">Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers</div></div>";
                 }
                 numberOfServersDisplayed++;
@@ -917,7 +937,9 @@ sub javascript {
             var markup = content[0];
             var emptyslices = content[1];
             var javascript = content[2];
-            var changes = content[3];
+            var total = content[3];
+            var unit = content[4];
+            var changes = content[5];
             var warnings = document.getElementById('warnings').innerHTML;
 
             if (markup.length > 0) {                                            //we have backends!
@@ -938,6 +960,8 @@ sub javascript {
             if (warnings.length > 0) {                                           //we have a changelog
                 document.getElementById('linklist').innerHTML += " • <a href=\\"#warnings\\">Warnings</a>";
             }
+
+            document.getElementById('total').innerHTML =  total + " " + unit;  //show grand total
 
             var javascr=document.getElementById('javascr'); //javascript element
             var JSchild=document.createElement('script');   //create new js block
