@@ -402,7 +402,6 @@ sub getBackends {
                 my $size = $emptySlices{$backend}{$slice}{$vm}{'size'};
                 my $unit = $emptySlices{$backend}{$slice}{$vm}{'unit'};
                 $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
-                $grandTotal += nearest(.01, units($size, $unit, $GLOBALUNIT));
                 $j = 1;
             }
         }
