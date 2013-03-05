@@ -43,6 +43,7 @@ my @serializedBackends    :shared;
 my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
 my $grandTotal            :shared;
+my $grandTotalUsed        :shared;
 
 #define parameters
 use constant NTHREADS => 6;
@@ -168,6 +169,7 @@ sub getdata {
             my $unalloc   = $VMdata{'unalloc'};
             my $PVSize    = $VMdata{'size'};
             $grandTotal += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
+            $grandTotalUsed += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
             $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
             my (%vgs, %lvs, $vgRows, %lvRows, $orgRows, $haveLVM, $haveBTRFS);
@@ -330,6 +332,8 @@ sub getdata {
             $frontendInfo .= "ENDOFELEMENT";
             $frontendInfo .= "$grandTotal";
             $frontendInfo .= "ENDOFELEMENT";
+            $frontendInfo .= "$grandTotalUsed";
+            $frontendInfo .= "ENDOFELEMENT";
             $frontendInfo .= "$GLOBALUNIT";
             $frontendInfo .= "ENDOFSERVER";
             print $frontendInfo;
@@ -417,6 +421,8 @@ sub getBackends {
     print "$javascript";
     print "ENDOFELEMENT";
     print "$grandTotal";
+    print "ENDOFELEMENT";
+    print "$grandTotalUsed";
     print "ENDOFELEMENT";
     print "$GLOBALUNIT";
     print "ENDOFELEMENT";
@@ -896,7 +902,8 @@ sub javascript {
                 var servername=serverdata[2];
                 var warnings=serverdata[3];
                 var total=serverdata[4];
-                var unit=serverdata[5];
+                var totalUsed=serverdata[5];
+                var unit=serverdata[6];
 
                 document.getElementById('warnings').innerHTML += warnings;
 
@@ -915,7 +922,7 @@ sub javascript {
                     eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
 
                     document.getElementById('felist').innerHTML +=  "<a href=\\"#" + servername + "\\">" + servername + "</a> | ";  //populate link list + warnings
-                    document.getElementById('total').innerHTML =  total + " " + unit;  //show grand total
+                    document.getElementById('total').innerHTML =  totalUsed + " / " + total + " " + unit;  //show grand total
                     document.getElementById('message').innerHTML = "<div><img src=\\"spinner.gif\\" /><div id=\\"counter\\">Loading Server " + parseInt(numberOfServersReceived+1) + " of $numberOfServers</div></div>";
                 }
                 numberOfServersDisplayed++;
@@ -937,8 +944,9 @@ sub javascript {
             var emptyslices = content[1];
             var javascript = content[2];
             var total = content[3];
-            var unit = content[4];
-            var changes = content[5];
+            var totalUsed = content[4];
+            var unit = content[5];
+            var changes = content[6];
             var warnings = document.getElementById('warnings').innerHTML;
 
             if (markup.length > 0) {                                            //we have backends!
@@ -960,7 +968,7 @@ sub javascript {
                 document.getElementById('linklist').innerHTML += " • <a href=\\"#warnings\\">Warnings</a>";
             }
 
-            document.getElementById('total').innerHTML =  total + " " + unit;  //show grand total
+            document.getElementById('total').innerHTML =  totalUsed + " / " + total + " " + unit;  //show grand total
 
             var javascr=document.getElementById('javascr'); //javascript element
             var JSchild=document.createElement('script');   //create new js block
