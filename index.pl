@@ -42,8 +42,18 @@ my $emptyTable            :shared;
 my @serializedBackends    :shared;
 my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
+
+
 my $grandTotal            :shared;
 my $grandTotalUsed        :shared;
+
+my $grandFSLevel :shared;
+my $grandInFS    :shared;
+my $grandInLV    :shared;
+my $grandInVG    :shared;
+my $grandInPV    :shared;
+my $grandUnalloc :shared;
+my $grandPVSize  :shared;
 
 #define parameters
 use constant NTHREADS => 6;
@@ -168,8 +178,20 @@ sub getdata {
             my $PVInPV    = $VMdata{'inPV'};
             my $unalloc   = $VMdata{'unalloc'};
             my $PVSize    = $VMdata{'size'};
+
+open L, ">>/tmp/log";
+print L "$PVFSLevel\n";
+close L;
+            $grandFSLevel += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
+            $grandInFS    += nearest(.01, units($PVInFS, $UNIT, $GLOBALUNIT));
+            $grandInLV    += nearest(.01, units($PVInLV, $UNIT, $GLOBALUNIT));
+            $grandInVG    += nearest(.01, units($PVInVG, $UNIT, $GLOBALUNIT));
+            $grandInPV    += nearest(.01, units($PVInPV, $UNIT, $GLOBALUNIT));
+            $grandUnalloc += nearest(.01, units($unalloc, $UNIT, $GLOBALUNIT));
+            $grandPVSize  += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
             $grandTotal += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
             $grandTotalUsed += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
+
             $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
             my (%vgs, %lvs, $vgRows, %lvRows, $orgRows, $haveLVM, $haveBTRFS);
@@ -413,6 +435,8 @@ sub getBackends {
     }
 
     $javascript .= orgChart("backends_$beGrpOrg", $orgRows) if ($orgcount);
+    my $totalChart = pvData('grandtotal', $grandFSLevel, $grandInFS, $grandInLV, $grandInVG, $grandInPV, $grandUnalloc, $grandPVSize, $GLOBALUNIT);
+
     print "BACKENDS";
     print "$markup" if ($orgcount);
     print "ENDOFELEMENT";
@@ -423,6 +447,8 @@ sub getBackends {
     print "$grandTotal";
     print "ENDOFELEMENT";
     print "$grandTotalUsed";
+    print "ENDOFELEMENT";
+    print "$totalChart";
     print "ENDOFELEMENT";
     print "$GLOBALUNIT";
     print "ENDOFELEMENT";
@@ -484,109 +510,6 @@ sub units {
         $value /= 1024;
     }
     return $value;
-}
-
-sub html {
-    my $javascript = javascript();
-    my $css        = css();
-
-    return <<EOF;
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-  <head>
-    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
-    <title>
-      LVMchart - LVM Monitoring
-    </title>
-    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
-    <script type="text/javascript">
-        $javascript
-    </script>
-    <style type="text/css">
-        $css
-    </style>
- </head>
-  <div id="navigation">go to: <span id="linklist"><a href="#frontends">Frontends</a> [<span id="felist"> </span>]</span><span id="total"></span></div>
-  <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">VMchart - LVM and BTRFS Monitoring</a></div>
-  <body onload="init();">
-    <div id="message"></div>
-    <div align="center" id="data"><a name="frontends"></a><h1>Frontend information</h1></div>
-    <div id="javascr"></div>
-    <div align="center" id="backends"></div>
-    <div id="emptySlices"></div>
-    <hr />
-    <a name="log"></a><div align="left" id="changes"></div>
-    <!--[if !IE]>-->
-    <a name="warnings"></a><div id="warnings"></div>
-    <!--<![endif]-->
-    <!--[if IE]>
-    <div id="warnings">Please make sure you have Internet Explorer's compatibility mode disabled.<br /></div>
-    <![endif]-->
-</body>
-</html>
-EOF
-}
-
-sub chartTable {
-    my ($server, $serverID, $orgChart, $vgGrpChart, $lvGrpChart, $btrGrpChart, $haveLVM, $haveBTRFS) = @_;
-    my ($chart, %chartRows, %IDs);
-
-    for my $id (0..$vgGrpChart-1) {
-        push @{$IDs{'lvm2'}}, "vg_chart_${serverID}_$id";
-    }
-    for my $id (0..$lvGrpChart-1) {
-        push @{$IDs{'lvm2'}}, "lv_chart_lvm2_${serverID}_$id";
-    }
-    for my $id (0..$btrGrpChart-1) {
-        push @{$IDs{'btrfs'}}, "lv_chart_btrfs_${serverID}_$id";
-    }
-
-    foreach my $vmType qw(lvm2 btrfs) {
-        my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE) || 0;
-        my $num  = 0;
-        for my $row (1..$rows) {
-            $chartRows{$vmType} .= "<tr>";
-            for my $chart (1..$CHARTSPERLINE) {
-                my $td = ($IDs{$vmType}[$num])?"<div class=\"chart\" id=\"$IDs{$vmType}[$num]\"></div>":"&nbsp;";
-                $chartRows{$vmType} .= "<td>$td</td>";
-                $num++;
-            }
-            $chartRows{$vmType} .= "</tr>";
-        }
-    }
-
-    my $LVMchart   = '';
-    my $BTRFSchart = '';
-    if ($haveLVM) {
-        $LVMchart =<<EOF
-      <tr><td><h2>LVM2 overview</h2></td></tr>
-        $chartRows{'lvm2'}
-EOF
-    }
-    if ($haveBTRFS) {
-        $BTRFSchart =<<EOF
-      <tr><td><h2>BTRFS overview</h2></td></tr>
-        $chartRows{'btrfs'}
-EOF
-    }
-
-    return <<EOF;
-      <tr><td colspan="3" class="host"><a name="$server"></a>Host $server ($info{$server})</td></tr>
-      <tr><td><h2>Disk space overview</h2></td></tr>
-      <tr>
-        <td>
-          <div class="chart" id="pv_chart_$serverID"></div>
-        </td>
-      </tr>
-      $LVMchart
-      $BTRFSchart
-      <tr><tr><td><h2>Volume overview</h2></td></tr>
-       <td colspan="3">
-       $orgChart
-        </td>
-      </tr>
-      <tr><td colspan="3"><hr /></td></tr>
-EOF
 }
 
 sub pvData {
@@ -704,6 +627,114 @@ sub orgChart {
     //orgchart chart
         var org_chart_$serverID = new google.visualization.OrgChart(document.getElementById('org_chart_$serverID'));
             org_chart_$serverID.draw(org_data_$serverID, {allowHtml: true});
+EOF
+}
+
+sub chartTable {
+    my ($server, $serverID, $orgChart, $vgGrpChart, $lvGrpChart, $btrGrpChart, $haveLVM, $haveBTRFS) = @_;
+    my ($chart, %chartRows, %IDs);
+
+    for my $id (0..$vgGrpChart-1) {
+        push @{$IDs{'lvm2'}}, "vg_chart_${serverID}_$id";
+    }
+    for my $id (0..$lvGrpChart-1) {
+        push @{$IDs{'lvm2'}}, "lv_chart_lvm2_${serverID}_$id";
+    }
+    for my $id (0..$btrGrpChart-1) {
+        push @{$IDs{'btrfs'}}, "lv_chart_btrfs_${serverID}_$id";
+    }
+
+    foreach my $vmType qw(lvm2 btrfs) {
+        my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE) || 0;
+        my $num  = 0;
+        for my $row (1..$rows) {
+            $chartRows{$vmType} .= "<tr>";
+            for my $chart (1..$CHARTSPERLINE) {
+                my $td = ($IDs{$vmType}[$num])?"<div class=\"chart\" id=\"$IDs{$vmType}[$num]\"></div>":"&nbsp;";
+                $chartRows{$vmType} .= "<td>$td</td>";
+                $num++;
+            }
+            $chartRows{$vmType} .= "</tr>";
+        }
+    }
+
+    my $LVMchart   = '';
+    my $BTRFSchart = '';
+    if ($haveLVM) {
+        $LVMchart =<<EOF
+      <tr><td><h2>LVM2 overview</h2></td></tr>
+        $chartRows{'lvm2'}
+EOF
+    }
+    if ($haveBTRFS) {
+        $BTRFSchart =<<EOF
+      <tr><td><h2>BTRFS overview</h2></td></tr>
+        $chartRows{'btrfs'}
+EOF
+    }
+
+    return <<EOF;
+      <tr><td colspan="3" class="host"><a name="$server"></a>Host $server ($info{$server})</td></tr>
+      <tr><td><h2>Disk space overview</h2></td></tr>
+      <tr>
+        <td>
+          <div class="chart" id="pv_chart_$serverID"></div>
+        </td>
+      </tr>
+      $LVMchart
+      $BTRFSchart
+      <tr><tr><td><h2>Volume overview</h2></td></tr>
+       <td colspan="3">
+       $orgChart
+        </td>
+      </tr>
+      <tr><td colspan="3"><hr /></td></tr>
+EOF
+}
+
+sub html {
+    my $javascript = javascript();
+    my $css        = css();
+
+    return <<EOF;
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <title>
+      LVMchart - LVM Monitoring
+    </title>
+    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+    <script type="text/javascript">
+        $javascript
+    </script>
+    <style type="text/css">
+        $css
+    </style>
+ </head>
+  <div id="navigation">go to: <span id="linklist"><a href="#frontends">Frontends</a> [<span id="felist"> </span>]</span><span id="total"></span></div>
+  <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">VMchart - LVM and BTRFS Monitoring</a></div>
+  <body onload="init();">
+    <div id="message"></div>
+    <div id="grandtotal" style="display: none;">
+        <a name="grandtotal"></a>
+        <h1 align="center">Grand total</h1>
+        <div id="totalchart"></div>
+    </div>
+    <div align="center" id="data"><a name="frontends"></a><h1>Frontend information</h1></div>
+    <div id="javascr"></div>
+    <div align="center" id="backends"></div>
+    <div id="emptySlices"></div>
+    <hr />
+    <a name="log"></a><div align="left" id="changes"></div>
+    <!--[if !IE]>-->
+    <a name="warnings"></a><div id="warnings"></div>
+    <!--<![endif]-->
+    <!--[if IE]>
+    <div id="warnings">Please make sure you have Internet Explorer's compatibility mode disabled.<br /></div>
+    <![endif]-->
+</body>
+</html>
 EOF
 }
 
@@ -912,8 +943,8 @@ sub javascript {
                     div.innerHTML += "<table class='table'>" + markup + "</table>";         //workaround for friggin IE that can't dynamically modify tables
                     document.getElementById('data').appendChild(div);                       //load new table into DOM
 
-                    var jsid = 'js'+i;
                     var javascr=document.getElementById('javascr'); //javascript element
+                    var jsid = 'js'+i;
                     var JSchild=document.createElement('script');   //create new js block
                     JSchild.type='text/javascript';
                     JSchild.text=js;
@@ -945,8 +976,9 @@ sub javascript {
             var javascript = content[2];
             var total = content[3];
             var totalUsed = content[4];
-            var unit = content[5];
-            var changes = content[6];
+            var totalChart = content[5];
+            var unit = content[6];
+            var changes = content[7];
             var warnings = document.getElementById('warnings').innerHTML;
 
             if (markup.length > 0) {                                            //we have backends!
@@ -968,16 +1000,22 @@ sub javascript {
                 document.getElementById('linklist').innerHTML += " • <a href=\\"#warnings\\">Warnings</a>";
             }
 
-            document.getElementById('total').innerHTML =  totalUsed + " / " + total + " " + unit;  //show grand total
+
+            document.getElementById('total').innerHTML =  '<a href="#grandtotal">' + totalUsed + " / " + total + " " + unit + '</a>';  //show grand total
+
+            var totalchart = document.getElementById('totalchart');
+            totalchart.innerHTML = '<div id="pv_chart_grandtotal" class="chart" style="position: relative;">';
+            document.getElementById('grandtotal').style.display = 'block';
 
             var javascr=document.getElementById('javascr'); //javascript element
             var JSchild=document.createElement('script');   //create new js block
             JSchild.type='text/javascript';
-            JSchild.text=javascript;
+            JSchild.text=javascript + totalChart;
             var jsid = 'jsbackend';
             JSchild.id = jsid;
             javascr.appendChild(JSchild);                   //and append it
             eval(document.getElementById(jsid).innerHTML);  //FF needs explicit eval
+
         }
     }
 EOF
