@@ -702,7 +702,7 @@ sub html {
   <head>
     <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
     <title>
-      LVMchart - LVM Monitoring
+      VMchart - LVM and BTRFS Monitoring
     </title>
     <script type="text/javascript" src="https://www.google.com/jsapi"></script>
     <script type="text/javascript">
