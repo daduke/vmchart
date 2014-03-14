@@ -61,7 +61,7 @@ my $BARSPERCHART   =  8;    #number of LV in bar chart
 my $ORGSPERCHART   =  9;    #number of LV in org chart
 my $CHARTSPERLINE  =  3;    #number of LV charts in one line
 my $MAXCHARTFACTOR = 10;    #max factor in one LV chart
-my $GLOBALUNIT     = 'TB';  #summary data is in TB
+my $GLOBALUNIT     = 'TiB';  #summary data is in TiB
 my %labels = (
     'fsfill'  => 'FS filling level',
     'infs'    => 'available in FS',
@@ -137,7 +137,7 @@ sub getdata {
 
             my $serverID = $server;
             $serverID    =~ s/-/_/g;        #Google chart API needs underscores
-            $UNIT        = $VMdata{'unit'}; #TB or GB comes from the JSON
+            $UNIT        = $VMdata{'unit'}; #TiB or GiB comes from the JSON
 
             if ($VMdata{'warning'}) {
                 $warnings .= "Host $server: ".$VMdata{'warning'}."<br />\n";
