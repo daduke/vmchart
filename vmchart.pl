@@ -323,9 +323,9 @@ if ( $VMdata{'size'} && (($VMdata{'size'} - $sum) / $VMdata{'size'}) > $WARNINGP
 	$VMdata{'warning'} .= "numbers in PVs don't add up $sum $VMdata{'size'}";
 }
 if ($UNIT eq 'g') {
-	$VMdata{'unit'} = 'GB';
+	$VMdata{'unit'} = 'GiB';
 } elsif ($UNIT eq 't') {
-	$VMdata{'unit'} = 'TB';
+	$VMdata{'unit'} = 'TiB';
 }
 
 my $json = JSON->new->allow_nonref;	#generate and output JSON
