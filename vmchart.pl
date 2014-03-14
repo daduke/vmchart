@@ -81,7 +81,7 @@ $VMdata{'unalloc'} = $VMdata{'inPV'} = $VMdata{'inVG'} = $VMdata{'inLV'} = $VMda
 #BTRFS support
 if (`which btrfs`) {
     my %btrfs;
-    my $btrfsInfo = `btrfs fi show 2>/dev/null`;
+    my $btrfsInfo = `btrfs fi show -d 2>/dev/null`;
     foreach my $fs (split /\n\n/, $btrfsInfo) {
         my @lines = split /\n/, $fs;
         my ($fsInfo) = shift @lines;
@@ -335,19 +335,19 @@ print "$json_text";
 #---------------------------
 sub units {
 	my ($size, $sourceUnit) = @_;
-  if ($sourceUnit eq 'TB') {    #we get TB
+  if ($sourceUnit eq 'TB' || $sourceUnit eq 'TiB') {    #we get TB
       if ($UNIT eq 'g') {
         $size *= 1024;
       }
-  } elsif ($sourceUnit eq 'GB') {   #we get GB
+  } elsif ($sourceUnit eq 'GB' || $sourceUnit eq 'GiB') {   #we get GB
       if ($UNIT eq 't') {
-        $size /= 1024;
+        $size /= 1024.0;
       }
   } else {  #we get kB
       if ($UNIT eq 'g') {
-        $size /= 1024*1024;
+        $size /= 1024.0*1024.0;
       } elsif ($UNIT eq 't') {
-        $size /= 1024*1024*1024;
+        $size /= 1024.0*1024.0*1024.0;
       }
   }
 	return nearest(.01, $size);
