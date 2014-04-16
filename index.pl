@@ -407,6 +407,7 @@ sub getBackends {
                 } else {    #LVM
                     $VGslices = "LUNs for this VG: \\n" . $backends{$backend}{$server}{$vg}{'slices'};
                     $VGslices = substr $VGslices, 0, -4;
+                    $vmType = 'lvm';
                 }
 
                 if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
