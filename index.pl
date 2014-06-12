@@ -158,10 +158,10 @@ sub getdata {
                     $backends{$backend}{'size'}                  += $size;
                     $backends{$backend}{$server}{'size'}         += $size;
                     $backends{$backend}{$server}{$vg}{'size'}    += $size;
-                    $backends{$backend}{'slices'}                .= "$slice, \\n";
-                    $backends{$backend}{$server}{'slices'}       .= "$slice, \\n";
-                    $backends{$backend}{$server}{$vg}{'slices'}  .= "$slice, \\n";
-                    $backends{'global'}{$server}{$vg}{'slices'}  .= "$backend-$slice, \\n";
+                    $backends{$backend}{'slices'}                .= "$slice ($size $UNIT), \\n";
+                    $backends{$backend}{$server}{'slices'}       .= "$slice ($size $UNIT), \\n";
+                    $backends{$backend}{$server}{$vg}{'slices'}  .= "$slice ($size $UNIT), \\n";
+                    $backends{'global'}{$server}{$vg}{'slices'}  .= "$backend-$slice ($size $UNIT), \\n";
                     $backends{'global'}{$server}{$vg}{'vmtype'}   = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
                     $backends{'global'}{$server}{$vg}{'raidtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} || '';
                     if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'btrfs') {
