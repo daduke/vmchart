@@ -15,6 +15,7 @@
 use strict;
 use Math::Round qw(nearest);
 use JSON;
+use File::Glob ':glob';
 
 my %VMdata;	#JSON data format
 # VMdata{pv}{vg}{lv}
@@ -82,6 +83,13 @@ $VMdata{'unalloc'} = $VMdata{'inPV'} = $VMdata{'inVG'} = $VMdata{'inLV'} = $VMda
 if (`which btrfs`) {
     my %btrfs;
     my $btrfsInfo = `btrfs fi show -d 2>/dev/null`;
+    my %deviceList;
+    my @deviceList = glob("/dev/iscsi/*");  #get sdXY <-> bkpX-lun-Y mapping
+    foreach my $device (@deviceList) {
+        my $link = readlink($device);
+        $link =~ s#\.\./##;
+        $deviceList{$link} = $device;
+    }
     foreach my $fs (split /\n\n/, $btrfsInfo) {
         my @lines = split /\n/, $fs;
         my ($fsInfo) = shift @lines;
@@ -103,10 +111,7 @@ if (`which btrfs`) {
                     my $used = units($usedNum, $usedUnit);
                     my $size = units($sizeNum, $sizeUnit);
                     if (my ($bd) = $device =~ m#/dev/(sd\w+)#) {    #BTRFS shows us /dev/sdX, but we want iSCSI devices
-                        my $bid = `cat /sys/block/$bd/dev`;
-                        $device = `readlink /dev/block/$bid`;
-                        $device =~ s#\.\.#/dev#;
-                        chomp $device;
+                        $device = $deviceList{$bd};
                     }
                     push @devices, $device;
                     $btrfs{$label}{$device} = $size;
