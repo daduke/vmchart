@@ -82,7 +82,7 @@ $VMdata{'unalloc'} = $VMdata{'inPV'} = $VMdata{'inVG'} = $VMdata{'inLV'} = $VMda
 #BTRFS support
 if (`which btrfs`) {
     my %btrfs;
-    my $btrfsInfo = `btrfs fi show -d 2>/dev/null`;
+    my $btrfsInfo = `btrfs fi show 2>/dev/null`;
     my %deviceList;
     my @deviceList = glob("/dev/iscsi/*");  #get sdXY <-> bkpX-lun-Y mapping
     foreach my $device (@deviceList) {
