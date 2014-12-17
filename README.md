@@ -3,7 +3,7 @@ VMchart
 
 VMchart provides a web based graphical overview for file server disk space allocation. It currently supports LVM2, BTRFS, iSCSI and a client-server architecture to monitor several servers on one website. It features multithreaded AJAX-driven data gathering of multiple hosts and is written in PERL and Javascript, the graphs are rendered using the Google Chart Tools.
 
-![VMchart screenshot](https://readme.phys.ethz.ch/media/lvmchart1.png)
+![VMchart screenshot](https://readme.phys.ethz.ch/media/lvmchart1.png?raw=true)
 
 
 License
