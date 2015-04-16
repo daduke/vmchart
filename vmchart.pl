@@ -84,8 +84,9 @@ if (`which btrfs`) {
     my %btrfs;
     my $btrfsInfo = `btrfs fi show 2>/dev/null`;
     my %deviceList;
-    my @deviceList = glob("/dev/iscsi/*");  #get sdXY <-> bkpX-lun-Y mapping
-    foreach my $device (@deviceList) {
+    my @completeList = glob("/dev/iscsi/*");  #get bkpX-lun-Y -> sdXY mapping
+    my @relevantList = grep { $_ =~ /$PVpattern/ } @completeList;
+    foreach my $device (@relevantList) {
         my $link = readlink($device);
         $link =~ s#\.\./##;
         $deviceList{$link} = $device;
@@ -117,8 +118,9 @@ if (`which btrfs`) {
                     $btrfs{$label}{$device} = $size;
                     $numChunks++;
 
-                    my ($backend, $slice) = $device =~ m#$PVpattern#;
-                    push @takenSlices, "$backend-$slice"
+                    if (my ($backend, $slice) = $device =~ m#$PVpattern#) {
+                        push @takenSlices, "$backend-$slice";
+                    }
                 }
             }
 
@@ -148,11 +150,12 @@ if (`which btrfs`) {
             foreach my $device (@devices) {
                 my $size = $btrfs{$label}{$device};
                 if ($PVpattern) { #create PV overview
-                    my ($backend, $slice) = $device =~ m#$PVpattern#;
-                    $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $size;
-                    $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $label;
-                    $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'btrfs';
-                    $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} = 'raid1' if ($isRAID1);
+                    if (my ($backend, $slice) = $device =~ m#$PVpattern#) {
+                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $size;
+                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $label;
+                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'btrfs';
+                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} = 'raid1' if ($isRAID1);
+                    }
                 }
                 if ($isRAID1) {
                     $size /= 2;
@@ -219,7 +222,7 @@ foreach my $pv (@pvs) {	#collect PV data
 
 my @allSlices = </dev/iscsi/*>; #treat unassigned iSCSI slices
 foreach my $slice (@allSlices) {
-    if(my ($backend, $device) = $slice =~ m#$PVpattern#) {
+    if (my ($backend, $device) = $slice =~ m#$PVpattern#) {
         next if (grep /\b$backend-$device\b/, @takenSlices);
         my $rawSize = `sfdisk -s $slice`;
         my $size = units($rawSize, '');
