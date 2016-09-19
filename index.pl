@@ -6,7 +6,7 @@
 # <beckercl@phys.ethz.ch>
 # multithreading by Philip Ezhukattil <philipe@phys.ethz.ch> and Claude Becker <beckercl@phys.ethz.ch>
 # distributed under the terms of the GNU General Public License version 2 or any later version.
-# project website: http://wiki.phys.ethz.ch/readme/lvmchart
+# project website: https://readme.phys.ethz.ch/services/lvmchart/
 
 # 2011/08/04 v1.0 - initial working version
 # 2012/04/22 v2.0 - added backend information
@@ -43,6 +43,7 @@ my @serializedBackends    :shared;
 my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
 
+my $lastUpdate = strftime "%H:%M:%S %d.%m.%Y", localtime;
 
 my $grandTotal            :shared;
 my $grandTotalUsed        :shared;
@@ -179,9 +180,6 @@ sub getdata {
             my $unalloc   = $VMdata{'unalloc'};
             my $PVSize    = $VMdata{'size'};
 
-open L, ">>/tmp/log";
-print L "$PVFSLevel\n";
-close L;
             $grandFSLevel += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
             $grandInFS    += nearest(.01, units($PVInFS, $UNIT, $GLOBALUNIT));
             $grandInLV    += nearest(.01, units($PVInLV, $UNIT, $GLOBALUNIT));
@@ -198,7 +196,7 @@ close L;
             my $VGslices;
             my $lvGrpOrg  = 0;
             my $orgcount  = 0;
-            my $orgChart .= "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
+            my $orgChart  = "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
 
             foreach my $vg (reverse sort { $VMdata{'pv'}{$a}{'size'} <=> $VMdata{'pv'}{$b}{'size'} } keys %{$VMdata{'vgs'}}) {   #iterate over VGs
                 my $VGSize = $VMdata{'pv'}{$vg}{'size'};
@@ -218,6 +216,11 @@ close L;
                         $VGslices = substr $VGslices, 0, -4;
                     } else {
                         $VGslices = "Volume group";
+                    }
+                    if ($VGInVG > 0 && $vg ne 'freespace') {
+                        my $lv       = "free";
+                        my $key       = "${lv}_$vg";
+                        $orgRows .= "[{v:'$lv<div class=\"child freespace\">$VGInVG $UNIT</div>'},'$vg','free'],\n";
                     }
                 } else {    #BTRFS
                     $VGslices = $backends{'global'}{$server}{$vg}{'slices'};
@@ -274,6 +277,7 @@ close L;
                     }
                     $orgcount++;
                 }
+
             }
 
             #create VG and LV graphs
@@ -299,7 +303,7 @@ close L;
             }
 
             my %GrpChart;
-            foreach my $vmType qw(lvm2 btrfs) {
+            foreach my $vmType (qw(lvm2 btrfs)) {
                 my $maxInLVGraph   = 0;
                 my $lvcount        = 0;
                 $GrpChart{$vmType} = 0;
@@ -645,7 +649,7 @@ sub chartTable {
         push @{$IDs{'btrfs'}}, "lv_chart_btrfs_${serverID}_$id";
     }
 
-    foreach my $vmType qw(lvm2 btrfs) {
+    foreach my $vmType (qw(lvm2 btrfs)) {
         my $rows = ceil(scalar @{$IDs{$vmType}} / $CHARTSPERLINE) || 0;
         my $num  = 0;
         for my $row (1..$rows) {
@@ -714,13 +718,14 @@ sub html {
     </style>
  </head>
   <div id="navigation">go to: <span id="linklist"><a href="#frontends">Frontends</a> [<span id="felist"> </span>]</span><span id="total"></span></div>
-  <div class="header"><a href="http://wiki.phys.ethz.ch/readme/lvmchart">VMchart - LVM and BTRFS Monitoring</a></div>
+  <div class="header"><a href="https://readme.phys.ethz.ch/services/lvmchart/">VMchart - LVM and BTRFS Monitoring</a></div>
   <body onload="init();">
     <div id="message"></div>
     <div id="grandtotal" style="display: none;">
         <a name="grandtotal"></a>
         <h1 align="center">Grand total</h1>
-        <div id="totalchart"></div>
+        <h3 align="center">Last update: $lastUpdate</h3>
+        <div id="totalchart" align="center"></div>
     </div>
     <div align="center" id="data"><a name="frontends"></a><h1>Frontend information</h1></div>
     <div id="javascr"></div>
@@ -820,8 +825,8 @@ td.host {
 }
 
 div.chart {
-    width: 400px;
-    height: 300px;
+    width: 450px;
+    height: 350px;
 }
 
 div.parent {
@@ -981,6 +986,7 @@ sub javascript {
             var unit = content[6];
             var changes = content[7];
             var warnings = document.getElementById('warnings').innerHTML;
+            var usedPercent = (100 / total * totalUsed).toFixed(1);
 
             if (markup.length > 0) {                                            //we have backends!
                 document.getElementById('backends').innerHTML += '<a name="backends"></a><h1>Backend overview</h1>'+markup;
@@ -1002,7 +1008,7 @@ sub javascript {
             }
 
 
-            document.getElementById('total').innerHTML =  '<a href="#grandtotal">' + totalUsed + " / " + total + " " + unit + '</a>';  //show grand total
+            document.getElementById('total').innerHTML =  '<a href="#grandtotal">' + totalUsed + " / " + total + " " + unit + ' (' + usedPercent + '%)</a>';  //show grand total
 
             var totalchart = document.getElementById('totalchart');
             totalchart.innerHTML = '<div id="pv_chart_grandtotal" class="chart" style="position: relative;">';
