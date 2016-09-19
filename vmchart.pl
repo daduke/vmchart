@@ -82,7 +82,7 @@ $VMdata{'unalloc'} = $VMdata{'inPV'} = $VMdata{'inVG'} = $VMdata{'inLV'} = $VMda
 #BTRFS support
 if (`which btrfs`) {
     my %btrfs;
-    my $btrfsInfo = `btrfs fi show 2>/dev/null`;
+    my $btrfsInfo = `btrfs fi show --all-devices 2>/dev/null`;
     my %deviceList;
     my @completeList = glob("/dev/iscsi/*");  #get bkpX-lun-Y -> sdXY mapping
     my @relevantList = grep { $_ =~ /$PVpattern/ } @completeList;
@@ -262,7 +262,7 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 	$VMdata{'pv'}{$vgname}{'inVG'} = $free;
 	$VMdata{'inVG'} += $free;
 
-	my $lvs = `lvs --units=$UNIT --nosuffix --nohead --separator ^ $vg` || die "couldn't get lvs numbers!";
+	my $lvs = `lvs --units=$UNIT --nosuffix --nohead --separator ^ $vg`;
 	chomp $lvs;
 	my @lvs = split /\n/, $lvs;
 	foreach my $lv (sort @lvs) {	#iterate over LV
