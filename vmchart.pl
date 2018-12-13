@@ -15,7 +15,7 @@
 use strict;
 use Math::Round qw(nearest);
 use JSON;
-use File::Glob ':glob';
+use File::Glob ':bsd_glob';
 
 my %VMdata;	#JSON data format
 # VMdata{pv}{vg}{lv}
@@ -84,7 +84,7 @@ if (`which btrfs`) {
     my %btrfs;
     my $btrfsInfo = `btrfs fi show --all-devices 2>/dev/null`;
     my %deviceList;
-    my @completeList = glob("/dev/iscsi/*");  #get bkpX-lun-Y -> sdXY mapping
+    my @completeList = bsd_glob("/dev/iscsi/*");  #get bkpX-lun-Y -> sdXY mapping
     my @relevantList = grep { $_ =~ /$PVpattern/ } @completeList;
     foreach my $device (@relevantList) {
         my $link = readlink($device);
