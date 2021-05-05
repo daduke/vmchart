@@ -18,6 +18,7 @@ use strict;
 use Math::Round qw(nearest);
 use JSON;
 use File::Glob ':bsd_glob';
+use Data::Dumper;
 
 my %VMdata;	#JSON data format
 # VMdata{pv}{vg}{lv}
@@ -188,7 +189,8 @@ if (`which btrfs`) {
 #ZFS support
 if (`which zfs`) {
     my %zfs;
-    my @zpoolInfo = `zpool list -H 2>/dev/null`;
+    my $zpoolInfo = `zpool list -H 2>/dev/null`;
+    my @zpoolInfo = split "\n", $zpoolInfo;
     if (@zpoolInfo) {
         $VMdata{'vgs'}{'zfs'}=1;
         my $backend = `hostname`;   #TODO fix for ZFS on iSCSI
@@ -197,7 +199,7 @@ if (`which zfs`) {
             my ($poolName, $poolSize, $rest) = $line =~ /^(\S+)\s+([\d.]+)([MGT])\s+(.+)/;
             my $poolDetails = `zfs list -H $poolName`;
 
-            my ($name, $used, $usedUnit, $avail, $availUnit, $refer, $referUnit, $mountpoint) = $poolDetails =~ /^(\S+)\s+([\d.]+)([MGT])\s+([\d.]+)([MGT])\s+([\d.]+)([MGT])\s+(\/.+)$/;
+            my ($name, $used, $usedUnit, $avail, $availUnit, $refer, $referUnit, $mountpoint) = $poolDetails =~ /^(\S+)\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+(\/.+)$/;
             $used = units($used, $usedUnit);
             $avail = units($avail, $availUnit);
             my $size = $used + $avail;
@@ -230,38 +232,40 @@ if (`which zfs`) {
 
 
 #get PV
-my $pvs = `pvs --units=$UNIT --nosuffix --nohead --separator ^` || die "couldn't get pvs numbers!";
+my $pvs = `pvs --units=$UNIT --nosuffix --nohead --separator ^`;
 my @pvs = split /\n/, $pvs;
 
 $VMdata{'inPV'} = 0;
-foreach my $pv (@pvs) {	#collect PV data
-	my ($lun, $vg, $lvmversion, $pvattrs, $pvsize, $free) = split /\^/, $pv;
-    $vg ||= 'freespace';
-	$vg =~ s/\s//g;
-	next if (grep /\b$vg\b/, @excludeVG);	#skip exclude VG from config file
-	$VMdata{'vgs'}{$vg}=1;
-	$VMdata{'size'} += $pvsize;	#add to grand total
+if (@pvs) {
+    foreach my $pv (@pvs) {	#collect PV data
+        my ($lun, $vg, $lvmversion, $pvattrs, $pvsize, $free) = split /\^/, $pv;
+        $vg ||= 'freespace';
+        $vg =~ s/\s//g;
+        next if (grep /\b$vg\b/, @excludeVG);	#skip exclude VG from config file
+        $VMdata{'vgs'}{$vg}=1;
+        $VMdata{'size'} += $pvsize;	#add to grand total
 
-    if ($PVpattern) { #create PV overview
-        if (my ($backend, $slice) = $lun =~ m#$PVpattern#) {
-            $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $pvsize;
-            $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $vg;
-            $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'lvm';
+        if ($PVpattern) { #create PV overview
+            if (my ($backend, $slice) = $lun =~ m#$PVpattern#) {
+                $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $pvsize;
+                $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $vg;
+                $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'lvm';
 
-            my $device = "$backend-$slice";
-            push @takenSlices, $device;  #add slice to taken list
+                my $device = "$backend-$slice";
+                push @takenSlices, $device;  #add slice to taken list
+            }
         }
-    }
-    if ($vg eq 'freespace') {   #LVM2 LUNs not assigned to any VG
-        $VMdata{'pv'}{'freespace'}{'size'} += $pvsize;
-        $VMdata{'pv'}{'freespace'}{'inVG'} += $pvsize;
-        $VMdata{'inPV'} += $pvsize;
-        $VMdata{'freespace'}{'lvs'}{'lvm'}=1;
-        $VMdata{'pv'}{'freespace'}{'lvm'}{'size'} += $pvsize;
-        $VMdata{'pv'}{'freespace'}{'lvm'}{'inLV'} = 0;
-        $VMdata{'pv'}{'freespace'}{'lvm'}{'inFS'} = 0;
-        $VMdata{'pv'}{'freespace'}{'lvm'}{'FSLevel'} = 0;
-        $VMdata{'pv'}{'freespace'}{'lvm'}{'FSType'} = 'lvm';
+        if ($vg eq 'freespace') {   #LVM2 LUNs not assigned to any VG
+            $VMdata{'pv'}{'freespace'}{'size'} += $pvsize;
+            $VMdata{'pv'}{'freespace'}{'inVG'} += $pvsize;
+            $VMdata{'inPV'} += $pvsize;
+            $VMdata{'freespace'}{'lvs'}{'lvm'}=1;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'size'} += $pvsize;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'inLV'} = 0;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'inFS'} = 0;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'FSLevel'} = 0;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'FSType'} = 'lvm';
+        }
     }
 }
 
