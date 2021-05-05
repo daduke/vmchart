@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 # VMchart - browser-based generator for nice charts of LVM and BTRFS usage across different file servers
-# (c) 2011 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
+# (c) 2021 Christian Herzog <daduke@phys.ethz.ch> and Patrick Schmid <schmid@phys.ethz.ch>
 # incremental AJAX loading by Philip Ezhukattil <philipe@phys.ethz.ch> and Claude Becker
 # <beckercl@phys.ethz.ch>
 # distributed under the terms of the GNU General Public License version 2 or any later version.
@@ -10,6 +10,8 @@
 #TODO
 #btrfs on LVM!!!
 #btrfs subvolumes?
+#zfs on iSCSI devices
+#zfs datasets?
 
 
 use strict;
@@ -183,6 +185,49 @@ if (`which btrfs`) {
     }
 }
 
+#ZFS support
+if (`which zfs`) {
+    my %zfs;
+    my @zpoolInfo = `zpool list -H 2>/dev/null`;
+    if (@zpoolInfo) {
+        $VMdata{'vgs'}{'zfs'}=1;
+        my $backend = `hostname`;   #TODO fix for ZFS on iSCSI
+        chomp $backend;
+        foreach my $line (@zpoolInfo) {
+            my ($poolName, $poolSize, $rest) = $line =~ /^(\S+)\s+([\d.]+)([MGT])\s+(.+)/;
+            my $poolDetails = `zfs list -H $poolName`;
+
+            my ($name, $used, $usedUnit, $avail, $availUnit, $refer, $referUnit, $mountpoint) = $poolDetails =~ /^(\S+)\s+([\d.]+)([MGT])\s+([\d.]+)([MGT])\s+([\d.]+)([MGT])\s+(\/.+)$/;
+            $used = units($used, $usedUnit);
+            $avail = units($avail, $availUnit);
+            my $size = $used + $avail;
+            $VMdata{'FSLevel'} += nearest(.01, $used);
+            $VMdata{'pv'}{'zfs'}{$name}{'FSLevel'} = nearest(.01, $used);
+            $VMdata{'pv'}{'zfs'}{$name}{'inFS'} = $size;
+            $VMdata{'pv'}{'zfs'}{$name}{'size'} = nearest(.01, $size);
+            $VMdata{'pv'}{'zfs'}{$name}{'inLV'} = 0;
+            $VMdata{'pv'}{'zfs'}{$name}{'FSType'} = 'zfs';
+
+            $VMdata{'pv'}{'zfs'}{'size'} += $size;
+
+            $VMdata{'inFS'} += $size;
+            $VMdata{'size'} += $size;	#add to grand total
+            $VMdata{'zfs'}{'lvs'}{$name}=1;
+
+            my @deviceInfo = `zpool status -P $poolName`;
+            my @devices = grep { $_ =~ /\/dev\// } @deviceInfo;
+            foreach my $device (@devices) {
+                my ($path, $dev, $rest) = $device =~ /.+(\/dev\/disk\/by-.+\/)(\S+) (.+)/;
+                my $devSize = `blockdev --getsize64 $path$dev` / (1024*1024*1024);
+                $devSize = units($devSize, 'G');
+                $VMdata{'backends'}{$backend}{'slices'}{$dev}{'size'} = $devSize;
+                $VMdata{'backends'}{$backend}{'slices'}{$dev}{'vg'} = $name;
+                $VMdata{'backends'}{$backend}{'slices'}{$dev}{'vmtype'} = 'zfs';
+            }
+        }
+    }
+}
+
 
 #get PV
 my $pvs = `pvs --units=$UNIT --nosuffix --nohead --separator ^` || die "couldn't get pvs numbers!";
@@ -252,7 +297,7 @@ if (!keys %{$VMdata{'vgs'}}) {
 }
 
 foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
-  next if (grep /\b$vg\b/, qw(btrfs freespace)); #BTRFS and free slices are treated separately
+  next if (grep /\b$vg\b/, qw(btrfs zfs freespace)); #BTRFS, ZFS and free slices are treated separately
 	my $vgs = `vgs --units=$UNIT --nosuffix --nohead --separator ^ $vg` || die "couldn't get vgs numbers!";
 	chomp $vgs;
 	my ($vgname, $vgpvs, $vglvs, $snapshots, $vgattrs, $vgsize, $free) = split /\^/, $vgs;
@@ -343,11 +388,11 @@ print "$json_text";
 #---------------------------
 sub units {
 	my ($size, $sourceUnit) = @_;
-  if ($sourceUnit eq 'TB' || $sourceUnit eq 'TiB') {    #we get TB
+  if ($sourceUnit eq 'TB' || $sourceUnit eq 'TiB' || $sourceUnit eq 'T') {    #we get TB
       if ($UNIT eq 'g') {
         $size *= 1024;
       }
-  } elsif ($sourceUnit eq 'GB' || $sourceUnit eq 'GiB') {   #we get GB
+  } elsif ($sourceUnit eq 'GB' || $sourceUnit eq 'GiB' || $sourceUnit eq 'G') {   #we get GB
       if ($UNIT eq 't') {
         $size /= 1024.0;
       }
