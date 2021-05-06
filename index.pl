@@ -249,11 +249,11 @@ sub getdata {
                 $orgRows  .= "[{v: '$vg',f: '$vgName<div class=\"parent\">$VGSize $UNIT</div>'}, '','$VGslices'],";
 
                 foreach my $lv (reverse sort { $VMdata{'pv'}{$vg}{$a}{'size'} <=> $VMdata{'pv'}{$vg}{$b}{'size'} } keys %{$VMdata{$vg}{'lvs'}}) {    #iterate over LVs, sorted by size
-                    my $LVFSLevel = $VMdata{'pv'}{$vg}{$lv}{'FSLevel'};    #get LV data
-                    my $LVInFS    = $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel;
-                    my $LVInLV    = $VMdata{'pv'}{$vg}{$lv}{'inLV'};
-                    my $LVSize    = $VMdata{'pv'}{$vg}{$lv}{'size'};
-                    my $FSType    = $VMdata{'pv'}{$vg}{$lv}{'FSType'};
+                    my $LVFSLevel = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'FSLevel'});    #get LV data
+                    my $LVInFS    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel);
+                    my $LVInLV    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'inLV'});
+                    my $LVSize    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'size'});
+                    my $FSType    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'FSType'});
                     my $key       = "${lv}_$vg";
 
                     if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
@@ -548,6 +548,13 @@ sub units {
 
 sub pvData {
     my ($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT) = @_;
+    $PVFSLevel = nearest(.01, $PVFSLevel);
+    $PVInFS =    nearest(.01, $PVInFS);
+    $PVInLV =    nearest(.01, $PVInLV);
+    $PVInVG =    nearest(.01, $PVInVG);
+    $PVInPV =    nearest(.01, $PVInPV);
+    $unalloc =   nearest(.01, $unalloc);
+    $PVSize =    nearest(.01, $PVSize);
 
     return <<EOF;
     //pv data
