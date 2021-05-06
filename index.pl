@@ -183,15 +183,15 @@ sub getdata {
             my $unalloc   = $VMdata{'unalloc'};
             my $PVSize    = $VMdata{'size'};
 
-            $grandFSLevel += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
-            $grandInFS    += nearest(.01, units($PVInFS, $UNIT, $GLOBALUNIT));
-            $grandInLV    += nearest(.01, units($PVInLV, $UNIT, $GLOBALUNIT));
-            $grandInVG    += nearest(.01, units($PVInVG, $UNIT, $GLOBALUNIT));
-            $grandInPV    += nearest(.01, units($PVInPV, $UNIT, $GLOBALUNIT));
-            $grandUnalloc += nearest(.01, units($unalloc, $UNIT, $GLOBALUNIT));
-            $grandPVSize  += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
-            $grandTotal += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
-            $grandTotalUsed += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
+            $grandFSLevel += units($PVFSLevel, $UNIT, $GLOBALUNIT);
+            $grandInFS    += units($PVInFS, $UNIT, $GLOBALUNIT);
+            $grandInLV    += units($PVInLV, $UNIT, $GLOBALUNIT);
+            $grandInVG    += units($PVInVG, $UNIT, $GLOBALUNIT);
+            $grandInPV    += units($PVInPV, $UNIT, $GLOBALUNIT);
+            $grandUnalloc += units($unalloc, $UNIT, $GLOBALUNIT);
+            $grandPVSize  += units($PVSize, $UNIT, $GLOBALUNIT);
+            $grandTotal += units($PVSize, $UNIT, $GLOBALUNIT);
+            $grandTotalUsed += units($PVFSLevel, $UNIT, $GLOBALUNIT);
 
             $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
@@ -543,7 +543,7 @@ sub units {
     } else {
         $value /= 1024;
     }
-    return $value;
+    return nearest(.01, $value);
 }
 
 sub pvData {

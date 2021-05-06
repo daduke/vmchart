@@ -154,7 +154,7 @@ if (`which btrfs`) {
                 my $size = $btrfs{$label}{$device};
                 if ($PVpattern) { #create PV overview
                     if (my ($backend, $slice) = $device =~ m#$PVpattern#) {
-                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $size;
+                        $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = nearest(.01, $size);
                         $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $label;
                         $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'btrfs';
                         $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} = 'raid1' if ($isRAID1);
@@ -164,13 +164,13 @@ if (`which btrfs`) {
                     $size /= 2;
                 }
 
-                $VMdata{'inFS'} += $size;
-                $VMdata{'size'} += $size;	#add to grand total
+                $VMdata{'inFS'} += nearest(.01, $size);
+                $VMdata{'size'} += nearest(.01, $size);	#add to grand total
                 $VMdata{'btrfs'}{'lvs'}{$label}=1;
 
-                $VMdata{'pv'}{'btrfs'}{'size'} += $size;
+                $VMdata{'pv'}{'btrfs'}{'size'} += nearest(.01, $size);
                 $VMdata{'pv'}{'btrfs'}{$label}{'size'} += nearest(.01, $size);
-                $VMdata{'pv'}{'btrfs'}{$label}{'inFS'} += $size;
+                $VMdata{'pv'}{'btrfs'}{$label}{'inFS'} += nearest(.01, $size);
             }
 
             if ( $mountUsed && $fsUsed && (($mountUsed - $fsUsed) / $mountUsed) > $WARNINGPERCENTAGE )  {
@@ -205,15 +205,15 @@ if (`which zfs`) {
             my $size = $used + $avail;
             $VMdata{'FSLevel'} += nearest(.01, $used);
             $VMdata{'pv'}{'zfs'}{$name}{'FSLevel'} = nearest(.01, $used);
-            $VMdata{'pv'}{'zfs'}{$name}{'inFS'} = $size;
+            $VMdata{'pv'}{'zfs'}{$name}{'inFS'} = nearest(.01, $size);
             $VMdata{'pv'}{'zfs'}{$name}{'size'} = nearest(.01, $size);
             $VMdata{'pv'}{'zfs'}{$name}{'inLV'} = 0;
             $VMdata{'pv'}{'zfs'}{$name}{'FSType'} = 'zfs';
 
-            $VMdata{'pv'}{'zfs'}{'size'} += $size;
+            $VMdata{'pv'}{'zfs'}{'size'} += nearest(.01, $size);
 
-            $VMdata{'inFS'} += $size;
-            $VMdata{'size'} += $size;	#add to grand total
+            $VMdata{'inFS'} += nearest(.01, $size);
+            $VMdata{'size'} += nearest(.01, $size);	#add to grand total
             $VMdata{'zfs'}{'lvs'}{$name}=1;
 
             my @deviceInfo = `zpool status -P $poolName`;
@@ -222,7 +222,7 @@ if (`which zfs`) {
                 my ($path, $dev, $rest) = $device =~ /.+(\/dev\/disk\/by-.+\/)(\S+) (.+)/;
                 my $devSize = `blockdev --getsize64 $path$dev` / (1024*1024*1024);
                 $devSize = units($devSize, 'G');
-                $VMdata{'backends'}{$backend}{'slices'}{$dev}{'size'} = $devSize;
+                $VMdata{'backends'}{$backend}{'slices'}{$dev}{'size'} = nearest(.01, $devSize);
                 $VMdata{'backends'}{$backend}{'slices'}{$dev}{'vg'} = $name;
                 $VMdata{'backends'}{$backend}{'slices'}{$dev}{'vmtype'} = 'zfs';
             }
@@ -243,11 +243,11 @@ if (@pvs) {
         $vg =~ s/\s//g;
         next if (grep /\b$vg\b/, @excludeVG);	#skip exclude VG from config file
         $VMdata{'vgs'}{$vg}=1;
-        $VMdata{'size'} += $pvsize;	#add to grand total
+        $VMdata{'size'} += nearest(.01, $pvsize);	#add to grand total
 
         if ($PVpattern) { #create PV overview
             if (my ($backend, $slice) = $lun =~ m#$PVpattern#) {
-                $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = $pvsize;
+                $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'} = nearest(.01, $pvsize);
                 $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'} = $vg;
                 $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'} = 'lvm';
 
@@ -256,11 +256,11 @@ if (@pvs) {
             }
         }
         if ($vg eq 'freespace') {   #LVM2 LUNs not assigned to any VG
-            $VMdata{'pv'}{'freespace'}{'size'} += $pvsize;
-            $VMdata{'pv'}{'freespace'}{'inVG'} += $pvsize;
+            $VMdata{'pv'}{'freespace'}{'size'} += nearest(.01, $pvsize);
+            $VMdata{'pv'}{'freespace'}{'inVG'} += nearest(.01, $pvsize);
             $VMdata{'inPV'} += $pvsize;
             $VMdata{'freespace'}{'lvs'}{'lvm'}=1;
-            $VMdata{'pv'}{'freespace'}{'lvm'}{'size'} += $pvsize;
+            $VMdata{'pv'}{'freespace'}{'lvm'}{'size'} += nearest(.01, $pvsize);
             $VMdata{'pv'}{'freespace'}{'lvm'}{'inLV'} = 0;
             $VMdata{'pv'}{'freespace'}{'lvm'}{'inFS'} = 0;
             $VMdata{'pv'}{'freespace'}{'lvm'}{'FSLevel'} = 0;
@@ -275,16 +275,16 @@ foreach my $slice (@allSlices) {
         next if (grep /\b$backend-$device\b/, @takenSlices);
         my $rawSize = `sfdisk -s $slice`;
         my $size = units($rawSize, '');
-        $VMdata{'backends'}{$backend}{'slices'}{$device}{'size'} = $size;
+        $VMdata{'backends'}{$backend}{'slices'}{$device}{'size'} = nearest(.01, $size);
         $VMdata{'backends'}{$backend}{'slices'}{$device}{'vg'} = 'freespace';
         $VMdata{'backends'}{$backend}{'slices'}{$device}{'vmtype'} = 'unallocated';
         $VMdata{'unalloc'} += $size;
         $VMdata{'size'} += $size;
 
-        $VMdata{'pv'}{'freespace'}{'size'} += $size;
-        $VMdata{'pv'}{'freespace'}{'inVG'} += $size;
+        $VMdata{'pv'}{'freespace'}{'size'} += nearest(.01, $size);
+        $VMdata{'pv'}{'freespace'}{'inVG'} += nearest(.01, $size);
         $VMdata{'freespace'}{'lvs'}{'unallocated'}=1;
-        $VMdata{'pv'}{'freespace'}{'unallocated'}{'size'} += $size;
+        $VMdata{'pv'}{'freespace'}{'unallocated'}{'size'} += nearest(.01, $size);
         $VMdata{'pv'}{'freespace'}{'unallocated'}{'inLV'} = 0;
         $VMdata{'pv'}{'freespace'}{'unallocated'}{'inFS'} = 0;
         $VMdata{'pv'}{'freespace'}{'unallocated'}{'FSLevel'} = 0;
@@ -307,9 +307,9 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 	my ($vgname, $vgpvs, $vglvs, $snapshots, $vgattrs, $vgsize, $free) = split /\^/, $vgs;
 	$vgname =~ s/\s//g;
 
-	$VMdata{'pv'}{$vgname}{'size'} = $vgsize;
-	$VMdata{'pv'}{$vgname}{'inVG'} = $free;
-	$VMdata{'inVG'} += $free;
+	$VMdata{'pv'}{$vgname}{'size'} = nearest(.01, $vgsize);
+	$VMdata{'pv'}{$vgname}{'inVG'} = nearest(.01, $free);
+	$VMdata{'inVG'} += nearest(.01, $free);
 
 	my $lvs = `lvs --units=$UNIT --nosuffix --nohead --separator ^ $vg`;
 	chomp $lvs;
@@ -318,7 +318,7 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 		my ($lvname, $lvvg, $lvattrs, $lvsize) = split /\^/, $lv;
 		$lvname =~ s/\s//g;
 		$VMdata{$vgname}{'lvs'}{$lvname}=1;
-		$VMdata{'pv'}{$vgname}{$lvname}{'size'} = $lvsize;
+		$VMdata{'pv'}{$vgname}{$lvname}{'size'} = nearest(.01, $lvsize);
 		my $lvname1 = $lvname;
 		$lvname1 =~ s/-/--/g;	#Linux device mapper uses two hyphens
 
@@ -327,10 +327,10 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 		my ($fsname, $fssize, $fsused, $fsfree, $fsfill, $mount) = split /\s+/, $fsinfo[1];
         my $fsType;
 		if ($fsname ne 'udev') {	#ok if FS is mounted
-				$fssize = units($fssize, '');
-				$fsused = units($fsused, '');
-        my $mountOpts = `mount | grep /dev/mapper/$vgname-$lvname1`;
-        ($fsType) = $mountOpts =~ /type (\S+) /;
+            $fssize = units($fssize, '');
+            $fsused = units($fsused, '');
+            my $mountOpts = `mount | grep /dev/mapper/nearest(.01, $vgname-$lvname1`;
+            ($fsType) = $mountOpts =~ /type (\S+) /;
 		} else {	#if it isn't...
 				my $fsInfo = `dd if=/dev/mapper/$vgname-$lvname1 count=1 bs=4k 2>/dev/null | file -`;	#try guessing FS
 				($fsType) = $fsInfo =~ /^.+ ([a-zA-Z0-9]+) file(system)? .+$/;
