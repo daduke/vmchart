@@ -199,7 +199,7 @@ if (`which zfs`) {
             my ($poolName, $poolSize, $rest) = $line =~ /^(\S+)\s+([\d.]+)([MGT])\s+(.+)/;
             my $poolDetails = `zfs list -H $poolName`;
 
-            my ($name, $used, $usedUnit, $avail, $availUnit, $refer, $referUnit, $mountpoint) = $poolDetails =~ /^(\S+)\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+(\/.+)$/;
+            my ($name, $used, $usedUnit, $avail, $availUnit, $refer, $referUnit, $mountpoint) = $poolDetails =~ /^(\S+)\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+([\d.]+)([KMGT])\s+(.+)$/;
             $used = units($used, $usedUnit);
             $avail = units($avail, $availUnit);
             my $size = $used + $avail;
