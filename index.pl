@@ -30,6 +30,7 @@ use Thread::Queue;
 use List::MoreUtils qw(uniq);
 use FreezeThaw qw(freeze thaw);
 use Math::Round qw(nearest);
+use Data::Dumper;
 
 my $myself = basename($0);
 my @servers;
@@ -39,9 +40,9 @@ my $warnings  = '';
 my (%VMdata, $UNIT);
 my ($markup, $javascript);
 my $emptyTable            :shared;
-my @serializedBackends    :shared;
 my @serializedLayout      :shared;
 my @serializedEmptySlices :shared;
+my %backends              :shared = ();
 
 my $lastUpdate = strftime "%H:%M:%S %d.%m.%Y", localtime;
 
@@ -110,7 +111,6 @@ sub getdata {
 
     while (my $server = $Q->dequeue) {
         my %emptyTablePart;
-        my %backends;
         my $frontendInfo;
         my $json_text;
         my %PVlayout;
@@ -119,6 +119,8 @@ sub getdata {
             print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
             next;
         } else {
+            # no autovivification for shared hashrefs
+            $backends{global} //= &share({});
             my $json = JSON->new->allow_nonref;
             my $VMdata;
             if (!($VMdata = $json->decode($json_text))) {
@@ -127,71 +129,80 @@ sub getdata {
                 next;
             }
             %VMdata = %$VMdata;
-            next unless (keys %{$VMdata{'vgs'}});  #skip host if no vgs present
+            next unless (keys %{$VMdata{vgs}});  #skip host if no vgs present
 
             my $numLVs = 0; #count LV
-            foreach my $vg (keys %{$VMdata{'vgs'}}) {
-                foreach my $lv (keys %{$VMdata{$vg}{'lvs'}}) {
+            foreach my $vg (keys %{$VMdata{vgs}}) {
+                foreach my $lv (keys %{$VMdata{$vg}{lvs}}) {
                     $numLVs++;
                 }
             }
 
             my $serverID = $server;
             $serverID    =~ s/-/_/g;        #Google chart API needs underscores
-            $UNIT        = $VMdata{'unit'}; #TiB or GiB comes from the JSON
+            $UNIT        = $VMdata{unit}; #TiB or GiB comes from the JSON
 
-            if ($VMdata{'warning'}) {
-                $warnings .= "Host $server: ".$VMdata{'warning'}."<br />\n";
+            if ($VMdata{warning}) {
+                $warnings .= "Host $server: ".$VMdata{warning}."<br />\n";
             }
 
-            foreach my $backend (sort keys %{$VMdata{'backends'}}) {   #populate backend information hash
+            #populate backend information hash
+            foreach my $backend (sort keys %{$VMdata{backends}}) {
+                $backends{$backend} //= &share({});
+                $backends{$backend}{$server} //= &share({});
                 my $j;
-                foreach my $slice (sort { $a cmp $b } keys %{$VMdata{'backends'}{$backend}{'slices'}}) {
-                    my $vg = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vg'};
+                foreach my $slice (sort { $a cmp $b } keys %{$VMdata{backends}{$backend}{slices}}) {
+                    $backends{global}{$server} //= &share({});
+                    my $vg = $VMdata{backends}{$backend}{slices}{$slice}{vg};
+                    $backends{global}{$server}{$vg} //= &share({}); #TODO should move outside of backend loop for local storage
+                    $backends{global}{$server}{btrfs} //= &share({});
+                    $backends{global}{$server}{zfs} //= &share({});
                     if ($vg eq 'freespace') {
-                        my $size   = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'};
-                        my $vmtype = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
-                        $emptyTablePart{$backend}{$slice}{$vmtype}{'size'} = $size;
-                        $emptyTablePart{$backend}{$slice}{$vmtype}{'unit'} = $UNIT;
-                        $backends{'global'}{$server}{$vmtype}{'slices'}   .= "$backend-$slice, \\n";
+                        my $size   = $VMdata{backends}{$backend}{slices}{$slice}{size};
+                        my $vmtype = $VMdata{backends}{$backend}{slices}{$slice}{vmtype};
+                        $backends{global}{$server}{$vmtype} //= &share({});
+                        $emptyTablePart{$backend}{$slice}{$vmtype}{size} = $size;
+                        $emptyTablePart{$backend}{$slice}{$vmtype}{unit} = $UNIT;
+                        $backends{global}{$server}{$vmtype}{slices}   .= "$backend-$slice, \\n";
                     }
-                    my $size = units($VMdata{'backends'}{$backend}{'slices'}{$slice}{'size'}, $UNIT, $GLOBALUNIT);
-                    $backends{$backend}{'size'}                  += $size;
-                    $backends{$backend}{$server}{'size'}         += $size;
-                    $backends{$backend}{$server}{$vg}{'size'}    += $size;
-                    $backends{$backend}{'slices'}                .= "$slice ($size $UNIT), \\n";
-                    $backends{$backend}{$server}{'slices'}       .= "$slice ($size $UNIT), \\n";
-                    $backends{$backend}{$server}{$vg}{'slices'}  .= "$slice ($size $UNIT), \\n";
-                    $backends{'global'}{$server}{$vg}{'slices'}  .= "$backend-$slice ($size $UNIT), \\n";
-                    $backends{'global'}{$server}{$vg}{'vmtype'}   = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'vmtype'};
-                    $backends{'global'}{$server}{$vg}{'raidtype'} = $VMdata{'backends'}{$backend}{'slices'}{$slice}{'raidtype'} || '';
-                    if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'btrfs') {
-                        $backends{'global'}{$server}{'btrfs'}{'slices'} .= "$backend-$slice, \\n";
+                    my $size = units($VMdata{backends}{$backend}{slices}{$slice}{size}, $UNIT, $GLOBALUNIT);
+                    $backends{$backend}{$server}{$vg} //= &share({});
+                    $backends{$backend}{size}                  += $size;
+                    $backends{$backend}{$server}{size}         += $size;
+                    $backends{$backend}{$server}{$vg}{size}    += $size;
+                    $backends{$backend}{slices}                .= "$slice ($size $UNIT), \\n";
+                    $backends{$backend}{$server}{slices}       .= "$slice ($size $UNIT), \\n";
+                    $backends{$backend}{$server}{$vg}{slices}  .= "$slice ($size $UNIT), \\n";
+                    $backends{global}{$server}{$vg}{slices}    .= "$backend-$slice ($size $UNIT), \\n";
+                    $backends{global}{$server}{$vg}{vmtype}     = $VMdata{backends}{$backend}{slices}{$slice}{vmtype};
+                    $backends{global}{$server}{$vg}{raidtype}   = $VMdata{backends}{$backend}{slices}{$slice}{raidtype} || '';
+                    if ($backends{global}{$server}{$vg}{vmtype} eq 'btrfs') {
+                        $backends{global}{$server}{btrfs}{slices} .= "$backend-$slice, \\n";
                     }
-                    if ($backends{'global'}{$server}{$vg}{'vmtype'} eq 'zfs') {
-                        $backends{'global'}{$server}{'zfs'}{'slices'} .= "$backend-$slice, \\n";
+                    if ($backends{global}{$server}{$vg}{vmtype} eq 'zfs') {
+                        $backends{global}{$server}{zfs}{slices} .= "$backend-$slice, \\n";
                     }
                     $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
             }
 
-            my $PVFSLevel = $VMdata{'FSLevel'}; #get PV data
-            my $PVInFS    = $VMdata{'inFS'} - $PVFSLevel;
-            my $PVInLV    = $VMdata{'inLV'};
-            my $PVInVG    = $VMdata{'inVG'};
-            my $PVInPV    = $VMdata{'inPV'};
-            my $unalloc   = $VMdata{'unalloc'};
-            my $PVSize    = $VMdata{'size'};
+            my $PVFSLevel = $VMdata{FSLevel}; #get PV data
+            my $PVInFS    = $VMdata{inFS} - $PVFSLevel;
+            my $PVInLV    = $VMdata{inLV};
+            my $PVInVG    = $VMdata{inVG};
+            my $PVInPV    = $VMdata{inPV};
+            my $unalloc   = $VMdata{unalloc};
+            my $PVSize    = $VMdata{size};
 
-            $grandFSLevel += units($PVFSLevel, $UNIT, $GLOBALUNIT);
-            $grandInFS    += units($PVInFS, $UNIT, $GLOBALUNIT);
-            $grandInLV    += units($PVInLV, $UNIT, $GLOBALUNIT);
-            $grandInVG    += units($PVInVG, $UNIT, $GLOBALUNIT);
-            $grandInPV    += units($PVInPV, $UNIT, $GLOBALUNIT);
-            $grandUnalloc += units($unalloc, $UNIT, $GLOBALUNIT);
-            $grandPVSize  += units($PVSize, $UNIT, $GLOBALUNIT);
-            $grandTotal += units($PVSize, $UNIT, $GLOBALUNIT);
-            $grandTotalUsed += units($PVFSLevel, $UNIT, $GLOBALUNIT);
+            $grandFSLevel += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
+            $grandInFS    += nearest(.01, units($PVInFS, $UNIT, $GLOBALUNIT));
+            $grandInLV    += nearest(.01, units($PVInLV, $UNIT, $GLOBALUNIT));
+            $grandInVG    += nearest(.01, units($PVInVG, $UNIT, $GLOBALUNIT));
+            $grandInPV    += nearest(.01, units($PVInPV, $UNIT, $GLOBALUNIT));
+            $grandUnalloc += nearest(.01, units($unalloc, $UNIT, $GLOBALUNIT));
+            $grandPVSize  += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
+            $grandTotal   += nearest(.01, units($PVSize, $UNIT, $GLOBALUNIT));
+            $grandTotalUsed += nearest(.01, units($PVFSLevel, $UNIT, $GLOBALUNIT));
 
             $javascript  .= pvData($serverID, $PVFSLevel, $PVInFS, $PVInLV, $PVInVG, $PVInPV, $unalloc, $PVSize, $UNIT);
 
@@ -201,8 +212,8 @@ sub getdata {
             my $orgcount  = 0;
             my $orgChart  = "<div class=\"orgchart\" id=\"org_chart_${serverID}_$lvGrpOrg\"></div>";
 
-            foreach my $vg (reverse sort { $VMdata{'pv'}{$a}{'size'} <=> $VMdata{'pv'}{$b}{'size'} } keys %{$VMdata{'vgs'}}) {   #iterate over VGs
-                my $VGSize = $VMdata{'pv'}{$vg}{'size'};
+            foreach my $vg (reverse sort { $VMdata{pv}{$a}{size} <=> $VMdata{pv}{$b}{size} } keys %{$VMdata{vgs}}) {   #iterate over VGs
+                my $VGSize = $VMdata{pv}{$vg}{size};
                 my $vmType;
                 if ($vg eq 'btrfs') {
                     $vmType = 'btrfs';
@@ -212,16 +223,18 @@ sub getdata {
                     $vmType = 'lvm2';
                 }
                 if ($vmType eq 'lvm2') {
-                    my $VGFSLevel = $VMdata{'pv'}{$vg}{'FSLevel'} || 0; #get VG data
-                    my $VGInFS    = $VMdata{'pv'}{$vg}{'inFS'}    || 0;
+                    my $VGFSLevel = $VMdata{pv}{$vg}{FSLevel} || 0; #get VG data
+                    my $VGInFS    = $VMdata{pv}{$vg}{inFS}    || 0;
                     $VGInFS -= $VGFSLevel;                              #subtract filling level
-                    my $VGInLV = $VMdata{'pv'}{$vg}{'inLV'} || 0;
-                    my $VGInVG = $VMdata{'pv'}{$vg}{'inVG'} || 0;
+                    my $VGInLV = $VMdata{pv}{$vg}{inLV} || 0;
+                    my $VGInVG = $VMdata{pv}{$vg}{inVG} || 0;
 
-                    $vgs{$vg}{'size'} = $VGSize;
+                    $vgs{$vg}{size} = $VGSize;
 
-                    $vgs{$vg}{'js'} = " {c:[{v: '$vg'},{v: $VGFSLevel, f:'$VGFSLevel $UNIT'},{v: $VGInFS, f:'$VGInFS $UNIT'},{v: $VGInLV, f:'$VGInLV $UNIT'},{v: $VGInVG, f:'$VGInVG $UNIT'}]},";
-                    if ($VGslices =  $backends{'global'}{$server}{$vg}{'slices'}) {
+                    $vgs{$vg}{js} = " {c:[{v: '$vg'},{v: $VGFSLevel, f:'$VGFSLevel $UNIT'},{v: $VGInFS, f:'$VGInFS $UNIT'},{v: $VGInLV, f:'$VGInLV $UNIT'},{v: $VGInVG, f:'$VGInVG $UNIT'}]},";
+                    $backends{global}{$server} //= &share({});  #TODO should be handled further up
+                    $backends{global}{$server}{$vg} //= &share({});
+                    if ($VGslices =  $backends{global}{$server}{$vg}{slices}) {
                         $VGslices = "LUNs for this VG: \\n" . $VGslices;
                         $VGslices = substr $VGslices, 0, -4;
                     } else {
@@ -233,13 +246,13 @@ sub getdata {
                         $orgRows .= "[{v:'$lv<div class=\"child freespace\">$VGInVG $UNIT</div>'},'$vg','free'],\n";
                     }
                 } elsif ($vmType eq 'btrfs') {
-                    $VGslices = $backends{'global'}{$server}{$vg}{'slices'};
+                    $VGslices = $backends{global}{$server}{$vg}{slices};
                     if ($VGslices) {
                         $VGslices = "LUNs for this volume: \\n" . $VGslices;
                         $VGslices = substr $VGslices, 0, -4;
                     }
                 } elsif ($vmType eq 'zfs') {
-                    $VGslices = $backends{'global'}{$server}{$vg}{'slices'};
+                    $VGslices = $backends{global}{$server}{$vg}{slices};
                     if ($VGslices) {
                         $VGslices = "devices for this pool: \\n" . $VGslices;
                         $VGslices = substr $VGslices, 0, -4;
@@ -248,12 +261,12 @@ sub getdata {
                 my $vgName = ($vg eq 'freespace')?'<span class="free">free space</span>':$vg;
                 $orgRows  .= "[{v: '$vg',f: '$vgName<div class=\"parent\">$VGSize $UNIT</div>'}, '','$VGslices'],";
 
-                foreach my $lv (reverse sort { $VMdata{'pv'}{$vg}{$a}{'size'} <=> $VMdata{'pv'}{$vg}{$b}{'size'} } keys %{$VMdata{$vg}{'lvs'}}) {    #iterate over LVs, sorted by size
-                    my $LVFSLevel = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'FSLevel'});    #get LV data
-                    my $LVInFS    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'inFS'} - $LVFSLevel);
-                    my $LVInLV    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'inLV'});
-                    my $LVSize    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'size'});
-                    my $FSType    = nearest(0.01, $VMdata{'pv'}{$vg}{$lv}{'FSType'});
+                foreach my $lv (reverse sort { $VMdata{pv}{$vg}{$a}{size} <=> $VMdata{pv}{$vg}{$b}{size} } keys %{$VMdata{$vg}{lvs}}) {    #iterate over LVs, sorted by size
+                    my $LVFSLevel = nearest(0.01, $VMdata{pv}{$vg}{$lv}{FSLevel});    #get LV data
+                    my $LVInFS    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{inFS} - $LVFSLevel);
+                    my $LVInLV    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{inLV});
+                    my $LVSize    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{size});
+                    my $FSType    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{FSType});
                     my $key       = "${lv}_$vg";
 
                     if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
@@ -264,12 +277,12 @@ sub getdata {
                     }
 
                     if ($vg ne 'freespace') {   #we don't want VG and LV graphs for free space
-                        $lvs{$vmType}{$key}{'size'} = $LVSize;
+                        $lvs{$vmType}{$key}{size} = $LVSize;
                         my $FSinfo = ($vmType eq 'btrfs' || $vmType eq 'zfs')?'':"($vg): $FSType";
-                        $lvs{$vmType}{$key}{'js'} = "{c:[{v: '$lv $FSinfo'},{v: $LVFSLevel, f: '$LVFSLevel $UNIT'},{v: $LVInFS, f: '$LVInFS $UNIT'},{v: $LVInLV, f: '$LVInLV $UNIT'}]},";   #fill LV and org chart data
+                        $lvs{$vmType}{$key}{js} = "{c:[{v: '$lv $FSinfo'},{v: $LVFSLevel, f: '$LVFSLevel $UNIT'},{v: $LVInFS, f: '$LVInFS $UNIT'},{v: $LVInLV, f: '$LVInLV $UNIT'}]},";   #fill LV and org chart data
                     }
                     if ($vg eq 'freespace') {
-                        my $LVslices = $backends{'global'}{$server}{$lv}{'slices'};
+                        my $LVslices = $backends{global}{$server}{$lv}{slices};
                         if ($LVslices) {
                             $LVslices = "LUNs for this volume: \\n" . $LVslices;
                             $LVslices = substr $LVslices, 0, -4;
@@ -280,19 +293,19 @@ sub getdata {
                         $orgRows .= "[{v:'$lv<div class=\"child\">$LVSize $UNIT ($FSType)</div>'},'$vg','Logical volume'],\n";
                     } elsif ($vmType eq 'btrfs') {
                         $haveBTRFS = 1;
-                        my $LVslices = $backends{'global'}{$server}{$lv}{'slices'};
+                        my $LVslices = $backends{global}{$server}{$lv}{slices};
                         if ($LVslices) {
                             $LVslices = "LUNs for this volume: \\n" . $LVslices;
                             $LVslices = substr $LVslices, 0, -4;
                         }
-                        if (my $raid = $backends{'global'}{$server}{$lv}{'raidtype'}) {
+                        if (my $raid = $backends{global}{$server}{$lv}{raidtype}) {
                             $raid    = uc($raid);
                             $FSType .= ", $raid";
                         }
                         $orgRows .= "[{v:'$lv<div class=\"child btrfs\">$LVSize $UNIT ($FSType)</div>'},'$vg','$LVslices'],\n";
                     } elsif ($vmType eq 'zfs') {
                         $haveZFS = 1;
-                        my $LVslices = $backends{'global'}{$server}{$lv}{'slices'};
+                        my $LVslices = $backends{global}{$server}{$lv}{slices};
                         if ($LVslices) {
                             $LVslices = "devices for this pool: \\n" . $LVslices;
                             $LVslices = substr $LVslices, 0, -4;
@@ -308,21 +321,21 @@ sub getdata {
             my $maxInVGGraph = 0;
             my $vgcount      = 0;
             my $vgGrpChart   = 0;
-            foreach my $vg (reverse sort { $vgs{$a}{'size'} <=> $vgs{$b}{'size'} } keys %vgs) {
+            foreach my $vg (reverse sort { $vgs{$a}{size} <=> $vgs{$b}{size} } keys %vgs) {
                 next if ($vg eq 'freespace');
                 if ($vgcount == 0) {
-                    $maxInVGGraph = $vgs{$vg}{'size'};
+                    $maxInVGGraph = $vgs{$vg}{size};
                 }
                 if ( ($vgcount && !($vgcount % $BARSPERCHART))
-                    || ($vgs{$vg}{'size'} && (($maxInVGGraph / $vgs{$vg}{'size'})) > $MAXCHARTFACTOR) ) {
+                    || ($vgs{$vg}{size} && (($maxInVGGraph / $vgs{$vg}{size})) > $MAXCHARTFACTOR) ) {
                         #if VG chart is full or bars get too short, create a new one
                     $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows);
                     $vgGrpChart++;
                     $vgRows  = '';
                     $vgcount = 0;
-                    $maxInVGGraph = $vgs{$vg}{'size'};
+                    $maxInVGGraph = $vgs{$vg}{size};
                 }
-                $vgRows .= $vgs{$vg}{'js'};
+                $vgRows .= $vgs{$vg}{js};
                 $vgcount++;
             }
 
@@ -332,36 +345,36 @@ sub getdata {
                 my $lvcount        = 0;
                 $GrpChart{$vmType} = 0;
 
-                foreach my $lv (reverse sort { $lvs{$vmType}{$a}{'size'} <=> $lvs{$vmType}{$b}{'size'} } keys %{$lvs{$vmType}}) {
+                foreach my $lv (reverse sort { $lvs{$vmType}{$a}{size} <=> $lvs{$vmType}{$b}{size} } keys %{$lvs{$vmType}}) {
                     if ($lvcount == 0) {
-                        $maxInLVGraph = $lvs{$vmType}{$lv}{'size'};
+                        $maxInLVGraph = $lvs{$vmType}{$lv}{size};
                     }
                     if ( ($lvcount && !($lvcount % $BARSPERCHART))
-                        || ($lvs{$vmType}{$lv}{'size'} != 0 && (($maxInLVGraph / $lvs{$vmType}{$lv}{'size'})) > $MAXCHARTFACTOR) ) {
+                        || ($lvs{$vmType}{$lv}{size} != 0 && (($maxInLVGraph / $lvs{$vmType}{$lv}{size})) > $MAXCHARTFACTOR) ) {
                             #if LV chart is full or bars get too short, create a new one
                         $javascript .= lvData("${serverID}_$GrpChart{$vmType}", $lvRows{$vmType}, $vmType);
                         $GrpChart{$vmType}++;
                         $lvRows{$vmType} = '';
                         $lvcount = 0;
-                        $maxInLVGraph = $lvs{$vmType}{$lv}{'size'};
+                        $maxInLVGraph = $lvs{$vmType}{$lv}{size};
                     }
-                    $lvRows{$vmType} .= $lvs{$vmType}{$lv}{'js'};
+                    $lvRows{$vmType} .= $lvs{$vmType}{$lv}{js};
                     $lvcount++;
                 }
             }
 
             chop $vgRows;   #trim last comma
-            chop $lvRows{'lvm2'}  if ($lvRows{'lvm2'});
-            chop $lvRows{'btrfs'} if ($lvRows{'btrfs'});
-            chop $lvRows{'zfs'} if ($lvRows{'zfs'});
+            chop $lvRows{lvm2}  if ($lvRows{lvm2});
+            chop $lvRows{btrfs} if ($lvRows{btrfs});
+            chop $lvRows{zfs} if ($lvRows{zfs});
             chop $orgRows;
 
             $javascript .= vgData("${serverID}_$vgGrpChart", $vgRows) if ($vgRows);
-            $javascript .= lvData("${serverID}_$GrpChart{'lvm2'}",  $lvRows{'lvm2'},  'lvm2')  if ($haveLVM);
-            $javascript .= lvData("${serverID}_$GrpChart{'btrfs'}", $lvRows{'btrfs'}, 'btrfs') if ($haveBTRFS);
-            $javascript .= lvData("${serverID}_$GrpChart{'zfs'}", $lvRows{'zfs'}, 'zfs') if ($haveZFS);
+            $javascript .= lvData("${serverID}_$GrpChart{lvm2}",  $lvRows{lvm2},  'lvm2')  if ($haveLVM);
+            $javascript .= lvData("${serverID}_$GrpChart{btrfs}", $lvRows{btrfs}, 'btrfs') if ($haveBTRFS);
+            $javascript .= lvData("${serverID}_$GrpChart{zfs}", $lvRows{zfs}, 'zfs') if ($haveZFS);
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
-            $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{'lvm2'}+1, $GrpChart{'btrfs'}+1, $GrpChart{'zfs'}+1, $haveLVM, $haveBTRFS, $haveZFS);
+            $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{lvm2}+1, $GrpChart{btrfs}+1, $GrpChart{zfs}+1, $haveLVM, $haveBTRFS, $haveZFS);
 
             #pass per-thread hashes to global master hashes
             {
@@ -369,8 +382,6 @@ sub getdata {
                 push(@serializedLayout, freeze(%PVlayout));
                 lock(@serializedEmptySlices);
                 push(@serializedEmptySlices, freeze(%emptyTablePart));
-                lock(@serializedBackends);
-                push(@serializedBackends, freeze(%backends));
             }
 
             #print information about this server
@@ -399,7 +410,6 @@ sub getdata {
 #create backend information orgchart
 sub getBackends {
     my $emptyTable;
-    my %backends    = map {thaw($_)} @serializedBackends;
     my %PVlayout    = map {thaw($_)} @serializedLayout;
     my %emptySlices = map {thaw($_)} @serializedEmptySlices;
     my $i        = 0;
@@ -411,34 +421,34 @@ sub getBackends {
 
     foreach my $backend (sort keys %backends) {
         my ($class, $j);
-        next if (grep /\b$backend\b/, qw(size global));
-        my $backendSize = $backends{$backend}{'size'};
-        $BEslices = "LUNs on this backend: \\n" . $backends{$backend}{'slices'};
+        next if ($backend eq 'size' || $backend eq 'global');
+        my $backendSize = $backends{$backend}{size};
+        $BEslices = "LUNs on this backend: \\n" . $backends{$backend}{slices};
         $BEslices = substr $BEslices, 0, -4;
         $orgRows .= "[{v: '$backend',f: '$backend<div class=\"parent\">$backendSize $GLOBALUNIT</div>'}, '', '$BEslices'],\n";
 
         foreach my $server (sort keys %{$backends{$backend}}) {
             next if (grep /\b$server\b/, qw(size slices));
-            my $serverSize = $backends{$backend}{$server}{'size'};
-            $FEslices = "LUNs for this frontend: \\n" . $backends{$backend}{$server}{'slices'};
+            my $serverSize = $backends{$backend}{$server}{size};
+            $FEslices = "LUNs for this frontend: \\n" . $backends{$backend}{$server}{slices};
             $FEslices = substr $FEslices, 0, -4;
             $orgRows .= "[{v: '$server-$backend',f: '$server<div class=\"child\">$serverSize $GLOBALUNIT</div>'}, '$backend', '$FEslices'],\n";
 
             foreach my $vg (sort keys %{$backends{$backend}{$server}}) {
                 next if (grep /\b$vg\b/, qw(size slices));
-                my $VGsize = $backends{$backend}{$server}{$vg}{'size'};
+                my $VGsize = $backends{$backend}{$server}{$vg}{size};
                 my $vmType = '';
-                if ( exists $backends{'global'}{$server}{$vg}{'vmtype'} ) {
-                    $vmType = $backends{'global'}{$server}{$vg}{'vmtype'};
+                if ( exists $backends{global}{$server}{$vg}{vmtype} ) {
+                    $vmType = $backends{global}{$server}{$vg}{vmtype};
                 }
                 if ($vmType eq 'btrfs') {
-                    $VGslices = "LUNs in BTRFS: \\n" . $backends{$backend}{$server}{$vg}{'slices'};
+                    $VGslices = "LUNs in BTRFS: \\n" . $backends{$backend}{$server}{$vg}{slices};
                     $VGslices = substr $VGslices, 0, -4;
                 } elsif ($vmType eq 'zfs') {
-                    $VGslices = "LUNs in ZFS \\n" . $backends{$backend}{$server}{$vg}{'slices'};
+                    $VGslices = "LUNs in ZFS \\n" . $backends{$backend}{$server}{$vg}{slices};
                     $VGslices = substr $VGslices, 0, -4;
                 } else {    #LVM
-                    $VGslices = "LUNs for this VG: \\n" . $backends{$backend}{$server}{$vg}{'slices'};
+                    $VGslices = "LUNs for this VG: \\n" . $backends{$backend}{$server}{$vg}{slices};
                     $VGslices = substr $VGslices, 0, -4;
                     $vmType = 'lvm';
                 }
@@ -459,8 +469,8 @@ sub getBackends {
 
         foreach my $slice (sort keys %{$emptySlices{$backend}}) {
             foreach my $vm (sort keys %{$emptySlices{$backend}{$slice}}) {
-                my $size = $emptySlices{$backend}{$slice}{$vm}{'size'};
-                my $unit = $emptySlices{$backend}{$slice}{$vm}{'unit'};
+                my $size = $emptySlices{$backend}{$slice}{$vm}{size};
+                my $unit = $emptySlices{$backend}{$slice}{$vm}{unit};
                 $emptyTable .= "<tr $class><td>$backend</td><td>$slice</td><td>$vm</td><td class=\"r\">$size $unit</td></tr>\n";
                 $j = 1;
             }
@@ -491,7 +501,7 @@ sub getBackends {
     my $changes;
     tie(%PVhistory, 'MLDBM', 'PVhistory.db', O_CREAT|O_RDWR, 0666);
     my %PVtemp = %{ clone (\%PVhistory) };  #needed b/c direct modify of tied HoH doesn't work
-        #segfaults but still works?????
+    #segfaults but still works?????
 
     foreach my $server (sort keys %PVlayout) {
         foreach my $vg (sort keys %{$PVlayout{$server}}) {
