@@ -28,7 +28,6 @@ use threads qw(yield);
 use threads::shared;
 use Thread::Queue;
 use List::MoreUtils qw(uniq);
-use FreezeThaw qw(freeze thaw);
 use Math::Round qw(nearest);
 use Data::Dumper;
 
@@ -39,10 +38,9 @@ my %PVhistory = ();
 my $warnings  = '';
 my (%VMdata, $UNIT);
 my ($markup, $javascript);
-my $emptyTable            :shared;
-my @serializedLayout      :shared;
-my @serializedEmptySlices :shared;
 my %backends              :shared = ();
+my %PVlayout              :shared = ();
+my %emptySlices           :shared = ();
 
 my $lastUpdate = strftime "%H:%M:%S %d.%m.%Y", localtime;
 
@@ -85,7 +83,7 @@ close HOSTS;
 my $numberOfServers = @servers;
 
 #determine whether we are in HTML or AJAX mode
-my $option = $ENV{'QUERY_STRING'} || '';
+my $option = $ENV{QUERY_STRING} || '';
 if ($option eq 'data'){
     print "Content-type:text/plain\r\n\r\n";
     $| = 1;     # Flush output continuously
@@ -110,10 +108,8 @@ sub getdata {
     my $tid = threads->tid;
 
     while (my $server = $Q->dequeue) {
-        my %emptyTablePart;
         my $frontendInfo;
         my $json_text;
-        my %PVlayout;
         if (!($json_text = `ssh -o IdentitiesOnly=yes -i /var/www/.ssh/remotesshwrapper root\@$server /usr/local/bin/remotesshwrapper vmchart.pl`)) {
             $warnings .= "could not fetch JSON from server $server! $!<br />\n";
             print "ENDOFELEMENTENDOFELEMENTENDOFELEMENT${warnings}ENDOFSERVER";
@@ -157,12 +153,15 @@ sub getdata {
                     $backends{global}{$server}{$vg} //= &share({}); #TODO should move outside of backend loop for local storage
                     $backends{global}{$server}{btrfs} //= &share({});
                     $backends{global}{$server}{zfs} //= &share({});
+                    $emptySlices{$backend} //= &share({});
+                    $emptySlices{$backend}{$slice} //= &share({});
                     if ($vg eq 'freespace') {
                         my $size   = $VMdata{backends}{$backend}{slices}{$slice}{size};
                         my $vmtype = $VMdata{backends}{$backend}{slices}{$slice}{vmtype};
                         $backends{global}{$server}{$vmtype} //= &share({});
-                        $emptyTablePart{$backend}{$slice}{$vmtype}{size} = $size;
-                        $emptyTablePart{$backend}{$slice}{$vmtype}{unit} = $UNIT;
+                        $emptySlices{$backend}{$slice}{$vmtype} //= &share({});
+                        $emptySlices{$backend}{$slice}{$vmtype}{size} = $size;
+                        $emptySlices{$backend}{$slice}{$vmtype}{unit} = $UNIT;
                         $backends{global}{$server}{$vmtype}{slices}   .= "$backend-$slice, \\n";
                     }
                     my $size = units($VMdata{backends}{$backend}{slices}{$slice}{size}, $UNIT, $GLOBALUNIT);
@@ -182,6 +181,8 @@ sub getdata {
                     if ($backends{global}{$server}{$vg}{vmtype} eq 'zfs') {
                         $backends{global}{$server}{zfs}{slices} .= "$backend-$slice, \\n";
                     }
+                    $PVlayout{$server} //= &share({});
+                    $PVlayout{$server}{$vg} //= &share({});
                     $PVlayout{$server}{$vg}{"$backend-$slice"} = 1;
                 }
             }
@@ -376,14 +377,6 @@ sub getdata {
             $javascript .= orgChart("${serverID}_$lvGrpOrg", $orgRows);
             $markup .= chartTable($server, $serverID, $orgChart, $vgGrpChart+1, $GrpChart{lvm2}+1, $GrpChart{btrfs}+1, $GrpChart{zfs}+1, $haveLVM, $haveBTRFS, $haveZFS);
 
-            #pass per-thread hashes to global master hashes
-            {
-                lock(@serializedLayout);
-                push(@serializedLayout, freeze(%PVlayout));
-                lock(@serializedEmptySlices);
-                push(@serializedEmptySlices, freeze(%emptyTablePart));
-            }
-
             #print information about this server
             $frontendInfo .= $javascript;
             $frontendInfo .= "ENDOFELEMENT";
@@ -409,14 +402,12 @@ sub getdata {
 
 #create backend information orgchart
 sub getBackends {
-    my $emptyTable;
-    my %PVlayout    = map {thaw($_)} @serializedLayout;
-    my %emptySlices = map {thaw($_)} @serializedEmptySlices;
     my $i        = 0;
     my $beGrpOrg = 0;
     my $orgcount = 0;
     $markup      = "<div class=\"orgchart\" id=\"org_chart_backends_0\"></div>\n";
     $javascript  = '';
+    my $emptyTable;
     my ($orgRows, $BEslices, $FEslices, $VGslices);
 
     foreach my $backend (sort keys %backends) {
@@ -523,7 +514,7 @@ sub getBackends {
             }
         }
     }
-    %PVhistory = %{ clone (\%PVlayout) };
+    %PVhistory = %{ shared_clone(\%PVlayout) };
     untie %PVhistory;
 
     open OLDLOG, "< changelog";
@@ -543,6 +534,8 @@ sub getBackends {
         print "@oldchanges";
     }
 }
+
+
 #----------------
 sub units {
     my ($value, $unit, $globalunit) = @_;
@@ -686,16 +679,16 @@ sub chartTable {
     my ($chart, %chartRows, %IDs);
 
     for my $id (0..$vgGrpChart-1) {
-        push @{$IDs{'lvm2'}}, "vg_chart_${serverID}_$id";
+        push @{$IDs{lvm2}}, "vg_chart_${serverID}_$id";
     }
     for my $id (0..$lvGrpChart-1) {
-        push @{$IDs{'lvm2'}}, "lv_chart_lvm2_${serverID}_$id";
+        push @{$IDs{lvm2}}, "lv_chart_lvm2_${serverID}_$id";
     }
     for my $id (0..$btrGrpChart-1) {
-        push @{$IDs{'btrfs'}}, "lv_chart_btrfs_${serverID}_$id";
+        push @{$IDs{btrfs}}, "lv_chart_btrfs_${serverID}_$id";
     }
     for my $id (0..$zfsGrpChart-1) {
-        push @{$IDs{'zfs'}}, "lv_chart_zfs_${serverID}_$id";
+        push @{$IDs{zfs}}, "lv_chart_zfs_${serverID}_$id";
     }
 
     foreach my $vmType (qw(lvm2 btrfs zfs)) {
@@ -718,19 +711,19 @@ sub chartTable {
     if ($haveLVM) {
         $LVMchart =<<EOF
       <tr><td><h2>LVM2 overview</h2></td></tr>
-        $chartRows{'lvm2'}
+        $chartRows{lvm2}
 EOF
     }
     if ($haveBTRFS) {
         $BTRFSchart =<<EOF
       <tr><td><h2>BTRFS overview</h2></td></tr>
-        $chartRows{'btrfs'}
+        $chartRows{btrfs}
 EOF
     }
     if ($haveZFS) {
         $ZFSchart =<<EOF
       <tr><td><h2>ZFS zpool overview</h2></td></tr>
-        $chartRows{'zfs'}
+        $chartRows{zfs}
 EOF
     }
 
