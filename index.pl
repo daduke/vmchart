@@ -759,7 +759,7 @@ sub html {
     <title>
       VMchart - LVM and BTRFS Monitoring
     </title>
-    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <script type="text/javascript">
         $javascript
     </script>
@@ -952,7 +952,7 @@ EOF
 
 sub javascript {
     return <<EOF;
-    google.load('visualization', '1', {packages: ['corechart', 'orgchart'], 'language': 'ch'});
+    google.charts.load('current', {'packages':['corechart', 'orgchart'], 'language': 'ch'});
 
     var numberOfServersDisplayed = 0;
     var req = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP"); // Create Ajax request object
