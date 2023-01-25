@@ -291,6 +291,8 @@ foreach my $slice (@allSlices) {
         $VMdata{'pv'}{'freespace'}{'unallocated'}{'FSType'} = 'unallocated';
     }
 }
+#populate freespace vg if we have unallocated slices
+$VMdata{'vgs'}{'freespace'}=1 if $VMdata{'freespace'}{'lvs'}{'unallocated'};
 
 if (!keys %{$VMdata{'vgs'}}) {
 	$VMdata{'warning'} .= "no volume management found!";
