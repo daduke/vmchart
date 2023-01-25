@@ -267,7 +267,7 @@ sub getdata {
                     my $LVInFS    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{inFS} - $LVFSLevel);
                     my $LVInLV    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{inLV});
                     my $LVSize    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{size});
-                    my $FSType    = nearest(0.01, $VMdata{pv}{$vg}{$lv}{FSType});
+                    my $FSType    = $VMdata{pv}{$vg}{$lv}{FSType};
                     my $key       = "${lv}_$vg";
 
                     if ($orgcount && !($orgcount % $ORGSPERCHART)) {  #if org chart is full, create a new one
