@@ -310,6 +310,8 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 	$VMdata{'pv'}{$vgname}{'size'} = nearest(.01, $vgsize);
 	$VMdata{'pv'}{$vgname}{'inVG'} = nearest(.01, $free);
 	$VMdata{'inVG'} += nearest(.01, $free);
+	$VMdata{'pv'}{$vgname}{'inLV'} = 0;
+	$VMdata{'pv'}{$vgname}{'inFS'} = 0;
 
 	my $lvs = `lvs --units=$UNIT --nosuffix --nohead --separator ^ $vg`;
 	chomp $lvs;
@@ -329,7 +331,7 @@ foreach my $vg (sort keys %{$VMdata{'vgs'}}) {	#iterate over VG
 		if ($fsname ne 'udev') {	#ok if FS is mounted
             $fssize = units($fssize, '');
             $fsused = units($fsused, '');
-            my $mountOpts = `mount | grep /dev/mapper/nearest(.01, $vgname-$lvname1`;
+            my $mountOpts = `mount | grep /dev/mapper/$vgname-$lvname1`;
             ($fsType) = $mountOpts =~ /type (\S+) /;
 		} else {	#if it isn't...
 				my $fsInfo = `dd if=/dev/mapper/$vgname-$lvname1 count=1 bs=4k 2>/dev/null | file -`;	#try guessing FS
